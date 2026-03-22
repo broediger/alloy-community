@@ -1,0 +1,515 @@
+// Interface Manager — Prisma Schema
+// ADR-003: Database Schema
+// UUID v7 via @default(dbgenerated("gen_random_uuid()")) — replace with uuid_generate_v7() when available
+// All workspace-scoped tables carry workspace_id — enforced at application layer via Fastify middleware
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// WORKSPACE
+// ─────────────────────────────────────────────
+
+model Workspace {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  slug      String   @unique
+  settings  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // relations
+  canonicalEntities          CanonicalEntity[]
+  canonicalFields            CanonicalField[]
+  canonicalSubfields         CanonicalSubfield[]
+  systems                    System[]
+  systemEntities             SystemEntity[]
+  systemFields               SystemField[]
+  systemEntityRelationships  SystemEntityRelationship[]
+  mappings                   Mapping[]
+  propagationChains          PropagationChain[]
+  interfaces                 Interface[]
+  modelVersions              ModelVersion[]
+
+  @@map("workspaces")
+}
+
+// ─────────────────────────────────────────────
+// CANONICAL MODEL
+// ─────────────────────────────────────────────
+
+model CanonicalEntity {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  name        String
+  slug        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace       @relation(fields: [workspaceId], references: [id])
+  fields    CanonicalField[]
+
+  @@unique([workspaceId, slug])
+  @@map("canonical_entities")
+}
+
+enum DataType {
+  STRING
+  INTEGER
+  DECIMAL
+  BOOLEAN
+  DATE
+  DATETIME
+  ENUM
+  OBJECT
+  ARRAY
+}
+
+model CanonicalField {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId        String   @map("workspace_id") @db.Uuid
+  entityId           String   @map("entity_id") @db.Uuid
+  name               String
+  displayName        String   @map("display_name")
+  description        String?
+  dataType           DataType @map("data_type")
+  format             String?
+  nullable           Boolean  @default(true)
+  minValue           String?  @map("min_value")
+  maxValue           String?  @map("max_value")
+  isComposite        Boolean  @default(false) @map("is_composite")
+  compositionPattern String?  @map("composition_pattern")
+  tags               String[]
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  workspace         Workspace              @relation(fields: [workspaceId], references: [id])
+  entity            CanonicalEntity        @relation(fields: [entityId], references: [id])
+  subfields         CanonicalSubfield[]
+  examples          CanonicalFieldExample[]
+  enumValues        CanonicalEnumValue[]
+  mappings          Mapping[]
+  propagationChains PropagationChain[]
+  interfaceFields   InterfaceField[]
+
+  @@unique([entityId, name])
+  @@map("canonical_fields")
+}
+
+model CanonicalSubfield {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId   String   @map("workspace_id") @db.Uuid
+  parentFieldId String   @map("parent_field_id") @db.Uuid
+  name          String
+  displayName   String   @map("display_name")
+  description   String?
+  dataType      DataType @map("data_type")
+  format        String?
+  nullable      Boolean  @default(true)
+  position      Int
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  workspace          Workspace            @relation(fields: [workspaceId], references: [id])
+  parentField        CanonicalField       @relation(fields: [parentFieldId], references: [id])
+  mappings           Mapping[]
+  composeRuleFields  ComposeRuleField[]
+  decomposeRuleFields DecomposeRuleField[]
+
+  @@unique([parentFieldId, name])
+  @@map("canonical_subfields")
+}
+
+model CanonicalFieldExample {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  canonicalFieldId String   @map("canonical_field_id") @db.Uuid
+  value            String
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  canonicalField CanonicalField @relation(fields: [canonicalFieldId], references: [id], onDelete: Cascade)
+
+  @@map("canonical_field_examples")
+}
+
+model CanonicalEnumValue {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  canonicalFieldId String   @map("canonical_field_id") @db.Uuid
+  code             String
+  label            String
+  position         Int
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  canonicalField CanonicalField @relation(fields: [canonicalFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([canonicalFieldId, code])
+  @@map("canonical_enum_values")
+}
+
+// ─────────────────────────────────────────────
+// SYSTEMS
+// ─────────────────────────────────────────────
+
+enum SystemType {
+  REST
+  SOAP
+  EVENT
+  FLAT_FILE
+  OTHER
+}
+
+model System {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String     @map("workspace_id") @db.Uuid
+  name        String
+  description String?
+  systemType  SystemType @map("system_type")
+  baseUrl     String?    @map("base_url")
+  notes       String?
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  workspace            Workspace                  @relation(fields: [workspaceId], references: [id])
+  entities             SystemEntity[]
+  propagationChains    PropagationChain[]
+  sourceInterfaces     Interface[]                @relation("SourceSystem")
+  targetInterfaces     Interface[]                @relation("TargetSystem")
+
+  @@unique([workspaceId, name])
+  @@map("systems")
+}
+
+model SystemEntity {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  systemId    String   @map("system_id") @db.Uuid
+  name        String
+  slug        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace             Workspace                  @relation(fields: [workspaceId], references: [id])
+  system                System                     @relation(fields: [systemId], references: [id])
+  fields                SystemField[]
+  sourceRelationships   SystemEntityRelationship[] @relation("SourceEntity")
+  targetRelationships   SystemEntityRelationship[] @relation("TargetEntity")
+  interfaceBindings     InterfaceEntityBinding[]
+
+  @@unique([systemId, slug])
+  @@map("system_entities")
+}
+
+model SystemField {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  entityId    String   @map("entity_id") @db.Uuid
+  name        String
+  path        String?
+  dataType    String   @map("data_type")
+  format      String?
+  nullable    Boolean  @default(true)
+  required    Boolean  @default(false)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace               Workspace                  @relation(fields: [workspaceId], references: [id])
+  entity                  SystemEntity               @relation(fields: [entityId], references: [id])
+  mappings                Mapping[]
+  viaRelationships        SystemEntityRelationship[]
+  propagationSteps        PropagationChainStep[]
+  composeRuleFields       ComposeRuleField[]
+  decomposeRuleFields     DecomposeRuleField[]
+
+  @@unique([entityId, name])
+  @@map("system_fields")
+}
+
+enum RelationshipType {
+  LOOKUP
+  PARENT
+  ONE_TO_MANY
+  MANY_TO_MANY
+}
+
+model SystemEntityRelationship {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String           @map("workspace_id") @db.Uuid
+  sourceEntityId   String           @map("source_entity_id") @db.Uuid
+  targetEntityId   String           @map("target_entity_id") @db.Uuid
+  viaFieldId       String           @map("via_field_id") @db.Uuid
+  relationshipType RelationshipType @map("relationship_type")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  workspace    Workspace    @relation(fields: [workspaceId], references: [id])
+  sourceEntity SystemEntity @relation("SourceEntity", fields: [sourceEntityId], references: [id])
+  targetEntity SystemEntity @relation("TargetEntity", fields: [targetEntityId], references: [id])
+  viaField     SystemField  @relation(fields: [viaFieldId], references: [id])
+
+  @@map("system_entity_relationships")
+}
+
+// ─────────────────────────────────────────────
+// MAPPINGS & TRANSFORMATION RULES
+// ─────────────────────────────────────────────
+
+model Mapping {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId         String   @map("workspace_id") @db.Uuid
+  canonicalFieldId    String?  @map("canonical_field_id") @db.Uuid
+  canonicalSubfieldId String?  @map("canonical_subfield_id") @db.Uuid
+  systemFieldId       String?  @map("system_field_id") @db.Uuid
+  notes               String?
+  deprecated          Boolean  @default(false)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  // CHECK: exactly one of canonicalFieldId / canonicalSubfieldId is not null
+  // CHECK: systemFieldId is required unless transformationRule.type is COMPOSE or DECOMPOSE
+  // both enforced at application layer — Prisma does not support check constraints natively
+
+  workspace         Workspace           @relation(fields: [workspaceId], references: [id])
+  canonicalField    CanonicalField?      @relation(fields: [canonicalFieldId], references: [id])
+  canonicalSubfield CanonicalSubfield?   @relation(fields: [canonicalSubfieldId], references: [id])
+  systemField       SystemField?         @relation(fields: [systemFieldId], references: [id])
+  transformationRule TransformationRule?
+
+  @@map("mappings")
+}
+
+enum TransformationRuleType {
+  RENAME
+  TYPE_CAST
+  VALUE_MAP
+  CONDITIONAL
+  FORMULA
+  COMPOSE
+  DECOMPOSE
+}
+
+model TransformationRule {
+  id        String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mappingId String                 @unique @map("mapping_id") @db.Uuid
+  type      TransformationRuleType
+  config    Json?
+  createdAt DateTime               @default(now()) @map("created_at")
+  updatedAt DateTime               @updatedAt @map("updated_at")
+
+  mapping             Mapping              @relation(fields: [mappingId], references: [id], onDelete: Cascade)
+  valueMapEntries     ValueMapEntry[]
+  composeRuleFields   ComposeRuleField[]
+  decomposeRuleFields DecomposeRuleField[]
+
+  @@map("transformation_rules")
+}
+
+model ValueMapEntry {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruleId        String   @map("rule_id") @db.Uuid
+  fromValue     String   @map("from_value")
+  toValue       String   @map("to_value")
+  bidirectional Boolean  @default(false)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  rule TransformationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@unique([ruleId, fromValue])
+  @@map("value_map_entries")
+}
+
+model ComposeRuleField {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruleId        String   @map("rule_id") @db.Uuid
+  systemFieldId String   @map("system_field_id") @db.Uuid
+  subfieldId    String   @map("subfield_id") @db.Uuid
+  position      Int
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  // systemFieldId → subfieldId: system field feeds into canonical subfield
+  // symmetric with DecomposeRuleField (subfieldId → systemFieldId)
+
+  rule        TransformationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  systemField SystemField        @relation(fields: [systemFieldId], references: [id])
+  subfield    CanonicalSubfield  @relation(fields: [subfieldId], references: [id])
+
+  @@unique([ruleId, position])
+  @@map("compose_rule_fields")
+}
+
+model DecomposeRuleField {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ruleId        String   @map("rule_id") @db.Uuid
+  subfieldId    String   @map("subfield_id") @db.Uuid
+  systemFieldId String   @map("system_field_id") @db.Uuid
+  position      Int
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  rule        TransformationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  subfield    CanonicalSubfield  @relation(fields: [subfieldId], references: [id])
+  systemField SystemField        @relation(fields: [systemFieldId], references: [id])
+
+  @@unique([ruleId, position])
+  @@map("decompose_rule_fields")
+}
+
+// ─────────────────────────────────────────────
+// PROPAGATION CHAINS
+// ─────────────────────────────────────────────
+
+model PropagationChain {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId      String   @map("workspace_id") @db.Uuid
+  canonicalFieldId String   @map("canonical_field_id") @db.Uuid
+  systemId         String   @map("system_id") @db.Uuid
+  name             String
+  description      String?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  workspace      Workspace              @relation(fields: [workspaceId], references: [id])
+  canonicalField CanonicalField         @relation(fields: [canonicalFieldId], references: [id])
+  system         System                 @relation(fields: [systemId], references: [id])
+  steps          PropagationChainStep[]
+
+  @@map("propagation_chains")
+}
+
+enum PropagationStepType {
+  CONVERSION
+  LOOKUP
+}
+
+model PropagationChainStep {
+  id          String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chainId     String              @map("chain_id") @db.Uuid
+  systemFieldId String            @map("system_field_id") @db.Uuid
+  position    Int
+  stepType    PropagationStepType @map("step_type")
+  notes       String?
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  chain       PropagationChain @relation(fields: [chainId], references: [id], onDelete: Cascade)
+  systemField SystemField      @relation(fields: [systemFieldId], references: [id])
+
+  @@unique([chainId, position])
+  @@map("propagation_chain_steps")
+}
+
+// ─────────────────────────────────────────────
+// INTERFACES
+// ─────────────────────────────────────────────
+
+enum InterfaceDirection {
+  REQUEST_RESPONSE
+  EVENT
+}
+
+enum InterfaceFieldStatus {
+  MANDATORY
+  OPTIONAL
+  EXCLUDED
+}
+
+model Interface {
+  id             String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId    String             @map("workspace_id") @db.Uuid
+  name           String
+  description    String?
+  sourceSystemId String             @map("source_system_id") @db.Uuid
+  targetSystemId String             @map("target_system_id") @db.Uuid
+  direction      InterfaceDirection
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  workspace      Workspace                @relation(fields: [workspaceId], references: [id])
+  sourceSystem   System                   @relation("SourceSystem", fields: [sourceSystemId], references: [id])
+  targetSystem   System                   @relation("TargetSystem", fields: [targetSystemId], references: [id])
+  entityBindings InterfaceEntityBinding[]
+  fields         InterfaceField[]
+
+  @@map("interfaces")
+}
+
+model InterfaceEntityBinding {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  interfaceId String       @map("interface_id") @db.Uuid
+  entityId    String       @map("entity_id") @db.Uuid
+  side        String       // "SOURCE" or "TARGET"
+
+  interface   Interface    @relation(fields: [interfaceId], references: [id], onDelete: Cascade)
+  entity      SystemEntity @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  @@unique([interfaceId, entityId, side])
+  @@map("interface_entity_bindings")
+}
+
+model InterfaceField {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  interfaceId      String               @map("interface_id") @db.Uuid
+  canonicalFieldId String               @map("canonical_field_id") @db.Uuid
+  status           InterfaceFieldStatus
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+
+  // source and target system field resolution is derived at read time
+  // via the mappings table — not stored here to avoid sync drift
+
+  interface      Interface      @relation(fields: [interfaceId], references: [id], onDelete: Cascade)
+  canonicalField CanonicalField @relation(fields: [canonicalFieldId], references: [id])
+
+  @@unique([interfaceId, canonicalFieldId])
+  @@map("interface_fields")
+}
+
+// ─────────────────────────────────────────────
+// VERSIONING (T-033)
+// ─────────────────────────────────────────────
+
+model ModelVersion {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String   @map("workspace_id") @db.Uuid
+  label       String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  createdBy   String?  @map("created_by")
+
+  workspace Workspace              @relation(fields: [workspaceId], references: [id])
+  snapshot  ModelVersionSnapshot?
+  diffs     ModelVersionDiff[]
+
+  @@unique([workspaceId, label])
+  @@map("model_versions")
+}
+
+model ModelVersionSnapshot {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  versionId String   @unique @map("version_id") @db.Uuid
+  snapshot  Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  version ModelVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("model_version_snapshots")
+}
+
+model ModelVersionDiff {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  versionId       String   @map("version_id") @db.Uuid
+  previousVersionId String? @map("previous_version_id") @db.Uuid
+  diff            Json
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  version ModelVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("model_version_diffs")
+}
