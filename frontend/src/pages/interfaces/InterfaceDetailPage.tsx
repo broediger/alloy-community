@@ -35,6 +35,7 @@ export function InterfaceDetailPage() {
   const deleteFieldMutation = useDeleteInterfaceField(workspaceId!, interfaceId!)
 
   const [addOpen, setAddOpen] = useState(false)
+  const [selectedEntityId, setSelectedEntityId] = useState('')
   const [newCanonicalFieldId, setNewCanonicalFieldId] = useState('')
   const [newStatus, setNewStatus] = useState<InterfaceFieldStatus>('OPTIONAL')
   const [exporting, setExporting] = useState(false)
@@ -47,6 +48,7 @@ export function InterfaceDetailPage() {
         status: newStatus,
       })
       setAddOpen(false)
+      setSelectedEntityId('')
       setNewCanonicalFieldId('')
       setNewStatus('OPTIONAL')
       toast('success', 'Field added to interface')
@@ -132,23 +134,19 @@ export function InterfaceDetailPage() {
     )
   }
 
-  // Filter out already-added canonical fields, grouped by canonical entity
+  // Filter out already-added canonical fields, then filter by selected entity
   const existingFieldIds = new Set((iface?.fields ?? []).map((f) => f.canonicalFieldId))
   const availableFields = (canonicalFields?.items ?? []).filter(
     (f) => !existingFieldIds.has(f.id)
   )
-  const entityMap = new Map(
-    (canonicalEntities?.items ?? []).map((e) => [e.id, e.name])
+  // Entities that still have available (not yet added) fields
+  const entitiesWithAvailableFields = (canonicalEntities?.items ?? []).filter(
+    (e) => availableFields.some((f) => f.entityId === e.id)
   )
-  const fieldGroups = Array.from(
-    availableFields.reduce((groups, f) => {
-      const entityName = entityMap.get(f.entityId) ?? 'Ungrouped'
-      if (!groups.has(entityName)) groups.set(entityName, [])
-      groups.get(entityName)!.push({ value: f.id, label: `${f.displayName} (${f.name})` })
-      return groups
-    }, new Map<string, Array<{ value: string; label: string }>>()),
-    ([label, options]) => ({ label, options })
-  )
+  // Fields filtered by the selected entity
+  const fieldsForSelectedEntity = selectedEntityId
+    ? availableFields.filter((f) => f.entityId === selectedEntityId)
+    : []
 
   if (isLoading) return <Spinner />
   if (!iface) return <div className="text-gray-500">Interface not found</div>
@@ -287,11 +285,26 @@ export function InterfaceDetailPage() {
       >
         <div className="space-y-4">
           <Select
+            label="Entity"
+            options={[
+              { value: '', label: 'Select an entity' },
+              ...entitiesWithAvailableFields.map((e) => ({ value: e.id, label: e.name })),
+            ]}
+            value={selectedEntityId}
+            onChange={(e) => { setSelectedEntityId(e.target.value); setNewCanonicalFieldId('') }}
+          />
+          <Select
             label="Canonical Field"
-            options={[{ value: '', label: 'Select a field' }]}
-            groups={fieldGroups}
+            options={[
+              { value: '', label: selectedEntityId ? 'Select a field' : 'Select an entity first' },
+              ...fieldsForSelectedEntity.map((f) => ({
+                value: f.id,
+                label: `${f.displayName} (${f.name})`,
+              })),
+            ]}
             value={newCanonicalFieldId}
             onChange={(e) => setNewCanonicalFieldId(e.target.value)}
+            disabled={!selectedEntityId}
           />
           <Select
             label="Status"
