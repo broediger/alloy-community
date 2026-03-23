@@ -6,7 +6,7 @@ import {
   useUpdateInterfaceField,
   useDeleteInterfaceField,
 } from '../../hooks/useInterfaces.js'
-import { useCanonicalFields } from '../../hooks/useCanonical.js'
+import { useCanonicalFields, useCanonicalEntities } from '../../hooks/useCanonical.js'
 import { Button } from '../../components/ui/Button.js'
 import { Select } from '../../components/ui/Select.js'
 import { Dialog } from '../../components/ui/Dialog.js'
@@ -29,6 +29,7 @@ export function InterfaceDetailPage() {
   const { toast } = useToast()
   const { data: iface, isLoading } = useInterface(workspaceId, interfaceId)
   const { data: canonicalFields } = useCanonicalFields(workspaceId)
+  const { data: canonicalEntities } = useCanonicalEntities(workspaceId)
   const createFieldMutation = useCreateInterfaceField(workspaceId!, interfaceId!)
   const updateFieldMutation = useUpdateInterfaceField(workspaceId!, interfaceId!)
   const deleteFieldMutation = useDeleteInterfaceField(workspaceId!, interfaceId!)
@@ -131,10 +132,22 @@ export function InterfaceDetailPage() {
     )
   }
 
-  // Filter out already-added canonical fields
+  // Filter out already-added canonical fields, grouped by canonical entity
   const existingFieldIds = new Set((iface?.fields ?? []).map((f) => f.canonicalFieldId))
   const availableFields = (canonicalFields?.items ?? []).filter(
     (f) => !existingFieldIds.has(f.id)
+  )
+  const entityMap = new Map(
+    (canonicalEntities?.items ?? []).map((e) => [e.id, e.name])
+  )
+  const fieldGroups = Array.from(
+    availableFields.reduce((groups, f) => {
+      const entityName = entityMap.get(f.entityId) ?? 'Ungrouped'
+      if (!groups.has(entityName)) groups.set(entityName, [])
+      groups.get(entityName)!.push({ value: f.id, label: `${f.displayName} (${f.name})` })
+      return groups
+    }, new Map<string, Array<{ value: string; label: string }>>()),
+    ([label, options]) => ({ label, options })
   )
 
   if (isLoading) return <Spinner />
@@ -275,13 +288,8 @@ export function InterfaceDetailPage() {
         <div className="space-y-4">
           <Select
             label="Canonical Field"
-            options={[
-              { value: '', label: 'Select a field' },
-              ...availableFields.map((f) => ({
-                value: f.id,
-                label: `${f.displayName} (${f.name})`,
-              })),
-            ]}
+            options={[{ value: '', label: 'Select a field' }]}
+            groups={fieldGroups}
             value={newCanonicalFieldId}
             onChange={(e) => setNewCanonicalFieldId(e.target.value)}
           />

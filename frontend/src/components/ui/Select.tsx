@@ -5,15 +5,21 @@ interface SelectOption {
   label: string
 }
 
+interface SelectOptionGroup {
+  label: string
+  options: SelectOption[]
+}
+
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string
   error?: string
   options: SelectOption[]
+  groups?: SelectOptionGroup[]
   placeholder?: string
 }
 
 const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, options, placeholder, className = '', id, ...props }, ref) => {
+  ({ label, error, options, groups, placeholder, className = '', id, ...props }, ref) => {
     const selectId = id ?? label?.toLowerCase().replace(/\s+/g, '-')
     return (
       <div className="w-full">
@@ -42,6 +48,15 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
               {opt.label}
             </option>
           ))}
+          {groups?.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.options.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
         </select>
         {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
       </div>
@@ -52,4 +67,4 @@ const Select = forwardRef<HTMLSelectElement, SelectProps>(
 Select.displayName = 'Select'
 
 export { Select }
-export type { SelectProps, SelectOption }
+export type { SelectProps, SelectOption, SelectOptionGroup }
