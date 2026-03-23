@@ -456,7 +456,13 @@ model InterfaceEntityBinding {
 model InterfaceField {
   id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   interfaceId      String               @map("interface_id") @db.Uuid
-  canonicalFieldId String               @map("canonical_field_id") @db.Uuid
+  canonicalFieldId String?              @map("canonical_field_id") @db.Uuid
+  // Inline metadata for unlinked (transport/meta) fields
+  name             String?
+  displayName      String?              @map("display_name")
+  dataType         String?              @map("data_type")
+  description      String?
+  nullable         Boolean              @default(true)
   status           InterfaceFieldStatus
   createdAt        DateTime             @default(now()) @map("created_at")
   updatedAt        DateTime             @updatedAt @map("updated_at")
@@ -464,10 +470,10 @@ model InterfaceField {
   // source and target system field resolution is derived at read time
   // via the mappings table — not stored here to avoid sync drift
 
-  interface      Interface      @relation(fields: [interfaceId], references: [id], onDelete: Cascade)
-  canonicalField CanonicalField @relation(fields: [canonicalFieldId], references: [id])
+  interface      Interface       @relation(fields: [interfaceId], references: [id], onDelete: Cascade)
+  canonicalField CanonicalField? @relation(fields: [canonicalFieldId], references: [id])
 
-  @@unique([interfaceId, canonicalFieldId])
+  // Uniqueness enforced at application layer (linked: interfaceId+canonicalFieldId, unlinked: interfaceId+name)
   @@map("interface_fields")
 }
 

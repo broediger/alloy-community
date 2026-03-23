@@ -2,12 +2,22 @@ import { prisma } from '../../lib/prisma.js'
 import { NotFoundError, ConflictError, ValidationError } from '../../errors/index.js'
 
 export interface CreateInterfaceFieldBody {
-  canonicalFieldId: string
+  canonicalFieldId?: string
+  name?: string
+  displayName?: string
+  dataType?: string
+  description?: string
+  nullable?: boolean
   status: string
 }
 
 export interface UpdateInterfaceFieldBody {
-  status: string
+  status?: string
+  name?: string
+  displayName?: string
+  dataType?: string
+  description?: string
+  nullable?: boolean
 }
 
 export async function list(workspaceId: string, interfaceId: string) {
@@ -33,26 +43,57 @@ export async function create(workspaceId: string, interfaceId: string, body: Cre
   })
   if (!iface) throw new NotFoundError('Interface')
 
-  // Validate canonical field belongs to workspace
-  const canonicalField = await prisma.canonicalField.findFirst({
-    where: { id: body.canonicalFieldId, workspaceId },
-  })
-  if (!canonicalField) throw new ValidationError([{ field: 'canonicalFieldId', message: 'Canonical field not found in this workspace' }])
+  const isLinked = !!body.canonicalFieldId
 
-  // Check uniqueness per interface
+  if (isLinked) {
+    // Linked field: validate canonical field belongs to workspace
+    const canonicalField = await prisma.canonicalField.findFirst({
+      where: { id: body.canonicalFieldId, workspaceId },
+    })
+    if (!canonicalField) throw new ValidationError([{ field: 'canonicalFieldId', message: 'Canonical field not found in this workspace' }])
+
+    // Check uniqueness per interface
+    const existing = await prisma.interfaceField.findFirst({
+      where: { interfaceId, canonicalFieldId: body.canonicalFieldId },
+    })
+    if (existing) throw new ConflictError('This canonical field is already added to this interface')
+
+    return prisma.interfaceField.create({
+      data: {
+        interfaceId,
+        canonicalFieldId: body.canonicalFieldId,
+        status: body.status as any,
+      },
+      include: {
+        canonicalField: { select: { id: true, name: true, displayName: true, dataType: true } },
+      },
+    })
+  }
+
+  // Unlinked field: validate required metadata
+  if (!body.name) {
+    throw new ValidationError([{ field: 'name', message: 'Required for unlinked fields' }])
+  }
+  if (!body.dataType) {
+    throw new ValidationError([{ field: 'dataType', message: 'Required for unlinked fields' }])
+  }
+
+  // Check name uniqueness among unlinked fields on this interface
   const existing = await prisma.interfaceField.findFirst({
-    where: { interfaceId, canonicalFieldId: body.canonicalFieldId },
+    where: { interfaceId, canonicalFieldId: null, name: body.name },
   })
-  if (existing) throw new ConflictError('This canonical field is already added to this interface')
+  if (existing) throw new ConflictError(`Unlinked field '${body.name}' already exists on this interface`)
 
   return prisma.interfaceField.create({
     data: {
       interfaceId,
-      canonicalFieldId: body.canonicalFieldId,
+      canonicalFieldId: null,
+      name: body.name,
+      displayName: body.displayName ?? null,
+      dataType: body.dataType,
+      description: body.description ?? null,
+      nullable: body.nullable ?? true,
       status: body.status as any,
-    },
-    include: {
-      canonicalField: { select: { id: true, name: true, displayName: true, dataType: true } },
     },
   })
 }
@@ -68,9 +109,25 @@ export async function update(workspaceId: string, interfaceId: string, id: strin
   })
   if (!field) throw new NotFoundError('Interface field')
 
+  const data: any = {}
+
+  if (body.status !== undefined) data.status = body.status
+
+  // Only allow metadata updates on unlinked fields
+  if (body.name !== undefined || body.displayName !== undefined || body.dataType !== undefined || body.description !== undefined || body.nullable !== undefined) {
+    if (field.canonicalFieldId) {
+      throw new ValidationError([{ field: 'name', message: 'Cannot update metadata on a linked canonical field' }])
+    }
+    if (body.name !== undefined) data.name = body.name
+    if (body.displayName !== undefined) data.displayName = body.displayName
+    if (body.dataType !== undefined) data.dataType = body.dataType
+    if (body.description !== undefined) data.description = body.description
+    if (body.nullable !== undefined) data.nullable = body.nullable
+  }
+
   return prisma.interfaceField.update({
     where: { id },
-    data: { status: body.status as any },
+    data,
   })
 }
 

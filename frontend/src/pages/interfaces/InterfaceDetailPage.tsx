@@ -8,6 +8,7 @@ import {
 } from '../../hooks/useInterfaces.js'
 import { useCanonicalFields, useCanonicalEntities } from '../../hooks/useCanonical.js'
 import { Button } from '../../components/ui/Button.js'
+import { Input } from '../../components/ui/Input.js'
 import { Select } from '../../components/ui/Select.js'
 import { Dialog } from '../../components/ui/Dialog.js'
 import { Badge } from '../../components/ui/Badge.js'
@@ -15,12 +16,24 @@ import { Spinner } from '../../components/ui/Spinner.js'
 import { useToast } from '../../components/ui/Toast.js'
 import { getErrorMessage } from '../../lib/api.js'
 import { api, triggerDownload } from '../../lib/api.js'
-import type { InterfaceFieldResolved, InterfaceFieldStatus } from '../../lib/types.js'
+import type { InterfaceFieldResolved, InterfaceFieldStatus, DataType } from '../../lib/types.js'
 
 const STATUS_OPTIONS: Array<{ value: InterfaceFieldStatus; label: string }> = [
   { value: 'MANDATORY', label: 'Mandatory' },
   { value: 'OPTIONAL', label: 'Optional' },
   { value: 'EXCLUDED', label: 'Excluded' },
+]
+
+const DATA_TYPE_OPTIONS: Array<{ value: DataType; label: string }> = [
+  { value: 'STRING', label: 'String' },
+  { value: 'INTEGER', label: 'Integer' },
+  { value: 'DECIMAL', label: 'Decimal' },
+  { value: 'BOOLEAN', label: 'Boolean' },
+  { value: 'DATE', label: 'Date' },
+  { value: 'DATETIME', label: 'DateTime' },
+  { value: 'ENUM', label: 'Enum' },
+  { value: 'OBJECT', label: 'Object' },
+  { value: 'ARRAY', label: 'Array' },
 ]
 
 export function InterfaceDetailPage() {
@@ -34,10 +47,20 @@ export function InterfaceDetailPage() {
   const updateFieldMutation = useUpdateInterfaceField(workspaceId!, interfaceId!)
   const deleteFieldMutation = useDeleteInterfaceField(workspaceId!, interfaceId!)
 
+  // Add canonical field dialog
   const [addOpen, setAddOpen] = useState(false)
   const [selectedEntityId, setSelectedEntityId] = useState('')
   const [newCanonicalFieldId, setNewCanonicalFieldId] = useState('')
   const [newStatus, setNewStatus] = useState<InterfaceFieldStatus>('OPTIONAL')
+
+  // Add unlinked field dialog
+  const [addUnlinkedOpen, setAddUnlinkedOpen] = useState(false)
+  const [ulName, setUlName] = useState('')
+  const [ulDisplayName, setUlDisplayName] = useState('')
+  const [ulDataType, setUlDataType] = useState<DataType>('STRING')
+  const [ulDescription, setUlDescription] = useState('')
+  const [ulStatus, setUlStatus] = useState<InterfaceFieldStatus>('OPTIONAL')
+
   const [exporting, setExporting] = useState(false)
 
   async function handleAddField() {
@@ -52,6 +75,28 @@ export function InterfaceDetailPage() {
       setNewCanonicalFieldId('')
       setNewStatus('OPTIONAL')
       toast('success', 'Field added to interface')
+    } catch (err) {
+      toast('error', getErrorMessage(err))
+    }
+  }
+
+  async function handleAddUnlinkedField() {
+    if (!ulName.trim()) return
+    try {
+      await createFieldMutation.mutateAsync({
+        name: ulName.trim(),
+        displayName: ulDisplayName.trim() || undefined,
+        dataType: ulDataType,
+        description: ulDescription.trim() || undefined,
+        status: ulStatus,
+      })
+      setAddUnlinkedOpen(false)
+      setUlName('')
+      setUlDisplayName('')
+      setUlDataType('STRING')
+      setUlDescription('')
+      setUlStatus('OPTIONAL')
+      toast('success', 'Interface field added')
     } catch (err) {
       toast('error', getErrorMessage(err))
     }
@@ -112,12 +157,6 @@ export function InterfaceDetailPage() {
     }
   }
 
-  function statusBadge(status: InterfaceFieldStatus) {
-    const variant =
-      status === 'MANDATORY' ? 'danger' : status === 'OPTIONAL' ? 'info' : 'default'
-    return <Badge variant={variant}>{status}</Badge>
-  }
-
   function mappingCell(
     mapping: InterfaceFieldResolved['sourceMapping'] | InterfaceFieldResolved['targetMapping']
   ) {
@@ -134,16 +173,18 @@ export function InterfaceDetailPage() {
     )
   }
 
+  // Split fields into linked (canonical) and unlinked (transport/meta)
+  const linkedFields = (iface?.fields ?? []).filter((f) => f.canonicalFieldId)
+  const unlinkedFields = (iface?.fields ?? []).filter((f) => !f.canonicalFieldId)
+
   // Filter out already-added canonical fields, then filter by selected entity
-  const existingFieldIds = new Set((iface?.fields ?? []).map((f) => f.canonicalFieldId))
+  const existingFieldIds = new Set(linkedFields.map((f) => f.canonicalFieldId))
   const availableFields = (canonicalFields?.items ?? []).filter(
     (f) => !existingFieldIds.has(f.id)
   )
-  // Entities that still have available (not yet added) fields
   const entitiesWithAvailableFields = (canonicalEntities?.items ?? []).filter(
     (e) => availableFields.some((f) => f.entityId === e.id)
   )
-  // Fields filtered by the selected entity
   const fieldsForSelectedEntity = selectedEntityId
     ? availableFields.filter((f) => f.entityId === selectedEntityId)
     : []
@@ -199,13 +240,14 @@ export function InterfaceDetailPage() {
         <p className="text-sm text-gray-600 mb-6">{iface.description}</p>
       )}
 
-      {/* Field contract table */}
-      {iface.fields.length === 0 ? (
-        <div className="text-center py-12 text-gray-500 text-sm">
-          No fields in this interface. Add canonical fields to define the contract.
+      {/* Canonical field contract table */}
+      <h2 className="text-lg font-semibold text-gray-800 mb-3">Canonical Fields</h2>
+      {linkedFields.length === 0 ? (
+        <div className="text-center py-8 text-gray-500 text-sm border border-gray-200 rounded-lg mb-8">
+          No canonical fields added yet.
         </div>
       ) : (
-        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+        <div className="overflow-x-auto border border-gray-200 rounded-lg mb-8">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -227,7 +269,7 @@ export function InterfaceDetailPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {iface.fields.map((f) => {
+              {linkedFields.map((f) => {
                 const hasMissing = !f.sourceMapping || !f.targetMapping
                 return (
                   <tr
@@ -264,7 +306,77 @@ export function InterfaceDetailPage() {
         </div>
       )}
 
-      {/* Add field dialog */}
+      {/* Transport / Metadata fields */}
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800">Interface Fields</h2>
+          <p className="text-xs text-gray-500">Transport and metadata fields not in the canonical model</p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => setAddUnlinkedOpen(true)}>
+          Add Interface Field
+        </Button>
+      </div>
+      {unlinkedFields.length === 0 ? (
+        <div className="text-center py-8 text-gray-500 text-sm border border-gray-200 rounded-lg">
+          No interface-level fields. Add transport or metadata fields like processDate, correlationId, etc.
+        </div>
+      ) : (
+        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Name
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Data Type
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Description
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {unlinkedFields.map((f) => (
+                <tr key={f.id}>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                    {f.displayName ? `${f.displayName} (${f.name})` : f.name}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-600">
+                    <Badge variant="default">{f.dataType}</Badge>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-500">
+                    {f.description || <span className="text-gray-300">&mdash;</span>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Select
+                      options={STATUS_OPTIONS}
+                      value={f.status}
+                      onChange={(e) =>
+                        handleUpdateStatus(f, e.target.value as InterfaceFieldStatus)
+                      }
+                      className="w-32"
+                    />
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Button variant="ghost" size="sm" onClick={() => handleRemoveField(f)}>
+                      Remove
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Add canonical field dialog */}
       <Dialog
         open={addOpen}
         onClose={() => setAddOpen(false)}
@@ -311,6 +423,59 @@ export function InterfaceDetailPage() {
             options={STATUS_OPTIONS}
             value={newStatus}
             onChange={(e) => setNewStatus(e.target.value as InterfaceFieldStatus)}
+          />
+        </div>
+      </Dialog>
+
+      {/* Add unlinked field dialog */}
+      <Dialog
+        open={addUnlinkedOpen}
+        onClose={() => setAddUnlinkedOpen(false)}
+        title="Add Interface Field"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAddUnlinkedOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddUnlinkedField}
+              disabled={!ulName.trim() || createFieldMutation.isPending}
+            >
+              Add
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Input
+            label="Name"
+            value={ulName}
+            onChange={(e) => setUlName(e.target.value)}
+            placeholder="e.g. processDate, correlationId"
+          />
+          <Input
+            label="Display Name"
+            value={ulDisplayName}
+            onChange={(e) => setUlDisplayName(e.target.value)}
+            placeholder="Optional label"
+          />
+          <Select
+            label="Data Type"
+            options={DATA_TYPE_OPTIONS}
+            value={ulDataType}
+            onChange={(e) => setUlDataType(e.target.value as DataType)}
+          />
+          <Input
+            label="Description"
+            value={ulDescription}
+            onChange={(e) => setUlDescription(e.target.value)}
+            placeholder="Optional description"
+          />
+          <Select
+            label="Status"
+            options={STATUS_OPTIONS}
+            value={ulStatus}
+            onChange={(e) => setUlStatus(e.target.value as InterfaceFieldStatus)}
           />
         </div>
       </Dialog>

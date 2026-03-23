@@ -31,9 +31,14 @@ const updateInterfaceSchema = {
 
 const createFieldSchema = {
   type: 'object',
-  required: ['canonicalFieldId', 'status'],
+  required: ['status'],
   properties: {
     canonicalFieldId: { type: 'string' },
+    name: { type: 'string', minLength: 1 },
+    displayName: { type: 'string', minLength: 1 },
+    dataType: { type: 'string', enum: ['STRING', 'INTEGER', 'DECIMAL', 'BOOLEAN', 'DATE', 'DATETIME', 'ENUM', 'OBJECT', 'ARRAY'] },
+    description: { type: 'string' },
+    nullable: { type: 'boolean' },
     status: { type: 'string', enum: ['MANDATORY', 'OPTIONAL', 'EXCLUDED'] },
   },
   additionalProperties: false,
@@ -41,9 +46,13 @@ const createFieldSchema = {
 
 const updateFieldSchema = {
   type: 'object',
-  required: ['status'],
   properties: {
     status: { type: 'string', enum: ['MANDATORY', 'OPTIONAL', 'EXCLUDED'] },
+    name: { type: 'string', minLength: 1 },
+    displayName: { type: 'string', minLength: 1 },
+    dataType: { type: 'string', enum: ['STRING', 'INTEGER', 'DECIMAL', 'BOOLEAN', 'DATE', 'DATETIME', 'ENUM', 'OBJECT', 'ARRAY'] },
+    description: { type: 'string' },
+    nullable: { type: 'boolean' },
   },
   additionalProperties: false,
 }

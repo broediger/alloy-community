@@ -84,6 +84,26 @@ export async function getById(workspaceId: string, id: string) {
   // If entity bindings exist, filter mappings to those specific entities
   const fieldsWithMappings = await Promise.all(
     iface.fields.map(async (f) => {
+      // Unlinked fields have no canonical field — skip mapping resolution
+      if (!f.canonicalFieldId) {
+        return {
+          id: f.id,
+          interfaceId: f.interfaceId,
+          canonicalFieldId: null,
+          canonicalField: null,
+          name: f.name,
+          displayName: f.displayName,
+          dataType: f.dataType,
+          description: f.description,
+          nullable: f.nullable,
+          status: f.status,
+          createdAt: f.createdAt,
+          updatedAt: f.updatedAt,
+          sourceMapping: null,
+          targetMapping: null,
+        }
+      }
+
       const sourceMappingFilter = sourceEntityIds.length > 0
         ? { entityId: { in: sourceEntityIds } }
         : { entity: { systemId: iface.sourceSystemId } }
@@ -146,6 +166,11 @@ export async function getById(workspaceId: string, id: string) {
         interfaceId: f.interfaceId,
         canonicalFieldId: f.canonicalFieldId,
         canonicalField: f.canonicalField,
+        name: null,
+        displayName: null,
+        dataType: null,
+        description: null,
+        nullable: true,
         status: f.status,
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,

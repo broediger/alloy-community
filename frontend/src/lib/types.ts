@@ -577,8 +577,14 @@ export interface InterfaceDetail extends InterfaceRecord {
 export interface InterfaceFieldResolved {
   id: string
   interfaceId: string
-  canonicalFieldId: string
-  canonicalField?: { id: string; name: string; displayName: string; dataType: string }
+  canonicalFieldId: string | null
+  canonicalField?: { id: string; name: string; displayName: string; dataType: string } | null
+  // Inline metadata for unlinked fields
+  name: string | null
+  displayName: string | null
+  dataType: DataType | null
+  description: string | null
+  nullable: boolean
   status: InterfaceFieldStatus
   sourceMapping: {
     systemFieldId: string
@@ -614,12 +620,22 @@ export interface UpdateInterfaceInput {
 }
 
 export interface CreateInterfaceFieldInput {
-  canonicalFieldId: string
+  canonicalFieldId?: string
+  name?: string
+  displayName?: string
+  dataType?: DataType
+  description?: string
+  nullable?: boolean
   status?: InterfaceFieldStatus
 }
 
 export interface UpdateInterfaceFieldInput {
-  status: InterfaceFieldStatus
+  status?: InterfaceFieldStatus
+  name?: string
+  displayName?: string
+  dataType?: DataType
+  description?: string
+  nullable?: boolean
 }
 
 // ─────────────────────────────────────────────
