@@ -421,6 +421,7 @@ export interface Mapping {
       system?: { id: string; name: string }
     }
   } | null
+  transformationRule?: TransformationRule | null
 }
 
 export interface MappingDetail extends Mapping {
@@ -585,18 +586,35 @@ export interface InterfaceFieldResolved {
   dataType: DataType | null
   description: string | null
   nullable: boolean
+  maxLength: number | null
   status: InterfaceFieldStatus
   sourceMapping: {
     systemFieldId: string
     systemFieldName: string
     systemFieldPath: string | null
     entityName: string | null
+    deprecated: boolean
+    transformationRule: {
+      type: TransformationRuleType
+      config: Record<string, unknown> | null
+      valueMapEntries: Array<{ fromValue: string; toValue: string; bidirectional: boolean }>
+      composeRuleFields: Array<{ systemFieldId: string; subfieldId: string; position: number }>
+      decomposeRuleFields: Array<{ subfieldId: string; systemFieldId: string; position: number }>
+    } | null
   } | null
   targetMapping: {
     systemFieldId: string
     systemFieldName: string
     systemFieldPath: string | null
     entityName: string | null
+    deprecated: boolean
+    transformationRule: {
+      type: TransformationRuleType
+      config: Record<string, unknown> | null
+      valueMapEntries: Array<{ fromValue: string; toValue: string; bidirectional: boolean }>
+      composeRuleFields: Array<{ systemFieldId: string; subfieldId: string; position: number }>
+      decomposeRuleFields: Array<{ subfieldId: string; systemFieldId: string; position: number }>
+    } | null
   } | null
   createdAt: string
   updatedAt: string
@@ -626,6 +644,7 @@ export interface CreateInterfaceFieldInput {
   dataType?: DataType
   description?: string
   nullable?: boolean
+  maxLength?: number
   status?: InterfaceFieldStatus
 }
 
@@ -636,6 +655,7 @@ export interface UpdateInterfaceFieldInput {
   dataType?: DataType
   description?: string
   nullable?: boolean
+  maxLength?: number | null
 }
 
 // ─────────────────────────────────────────────

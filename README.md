@@ -1,8 +1,10 @@
-# Interface Manager
+# Interface Manager (Community Edition)
 
 A web application that replaces Excel-based integration mapping files with a queryable, traceable registry. Define canonical fields once, map them across systems, trace relationships, and generate OpenAPI and JSON Schema specs directly from the mappings.
 
 The source of truth is the **canonical model** — everything else is derived from it.
+
+> Interface versioning and round-trip Excel import/export are available in the Alloy enterprise edition.
 
 ---
 
@@ -10,17 +12,19 @@ The source of truth is the **canonical model** — everything else is derived fr
 
 ```bash
 cp .env.example .env
-docker compose up
+docker compose up --build -d
 ```
 
 - **Frontend**: http://localhost
-- **Backend API**: http://localhost:3000
-- **Health check**: http://localhost:3000/health
+- **Backend API**: http://localhost:3099
+- **PostgreSQL**: localhost:5433
+- **Health check**: http://localhost:3099/health
 
-The backend waits for PostgreSQL to be ready before starting. On first boot, you'll need to run the database migration:
+On first boot, run the database migration:
 
 ```bash
-docker compose exec backend npx prisma migrate deploy
+DATABASE_URL="postgresql://postgres:postgres@localhost:5433/interface_manager" \
+  npx -w backend prisma migrate deploy
 ```
 
 To rebuild after code changes:
@@ -55,7 +59,7 @@ The frontend dev server proxies `/api` requests to the backend at `localhost:300
 
 ```bash
 npm test                      # Run all tests
-npm run test:backend          # Backend only (111 tests)
+npm run test:backend          # Backend only (111 tests across 14 test files)
 npm run test:frontend         # Frontend only
 
 # Single test file
@@ -104,11 +108,12 @@ Mappings connect canonical fields to system fields with a transformation rule de
 | Rule Type | Use Case |
 |-----------|----------|
 | **Rename** | Field name differs, value is identical |
+| **Type Cast** | Convert between data types (e.g. `string` → `integer`) |
 | **Value Map** | Lookup table (e.g. `active` → `1`, `inactive` → `0`). Optionally bidirectional. |
-| **Compose** | Multiple system fields merge into one canonical field |
-| **Decompose** | One canonical field splits into multiple system fields |
+| **Compose** | Multiple system fields merge into canonical sub-fields — configured via the compose field picker in the mapping UI |
+| **Decompose** | Canonical sub-fields split into multiple system fields — also via the field picker |
 
-A mapping can also be marked as **deprecated** to indicate it's being phased out.
+The mapping list shows the rule type as a badge and displays the actual rule values (entries, field counts, cast types) in a hover tooltip. A mapping can also be marked as **deprecated** to indicate it's being phased out.
 
 #### Handling discriminated tables
 
@@ -142,15 +147,23 @@ A propagation chain tracks how a value flows through entities *within* a single 
 
 An interface is a directed contract between a source and target system for a defined set of canonical fields. The interface detail view shows the full field contract: canonical field, source system field, target system field, and transformation rules for both sides.
 
-Each field in an interface can be marked as **mandatory**, **optional**, or **excluded**.
+Each field in an interface can be marked as **mandatory**, **optional**, or **excluded**, and carries an optional **maxLength** constraint for string-like types. Interfaces also support **unlinked fields** for transport/metadata that doesn't belong in the canonical model (e.g. `correlationId`, `processDate`).
 
-### 7. Trace Relationships
+### 7. Interface Views
+
+Every interface supports multiple views to explore and share its specification:
+
+- **Spec Sheet** — a flat, spreadsheet-style table showing all fields grouped by entity with green section headers, missing mapping highlights, and columns including rule details inline
+- **Swagger** — interactive Swagger UI modal rendering the live OpenAPI spec
+- **Export YAML / JSON / JSON Schema** — download formats
+
+### 8. Trace Relationships
 
 The trace view shows a visual graph for any canonical field: every system it's mapped to, every interface it appears in, every propagation chain it flows through, and any detected conflicts (e.g. incompatible data types across systems).
 
 Access the trace from any canonical field's detail page.
 
-### 8. Export Specs
+### 9. Export Specs
 
 Generate specs directly from the mappings — no manual editing required:
 
@@ -158,11 +171,17 @@ Generate specs directly from the mappings — no manual editing required:
 - **JSON Schema** (Draft 7) — per canonical entity or per interface
 - **Workspace export** — full JSON dump of all data for backup or migration
 
-Specs can also be generated from a saved **version snapshot** of the canonical model, so you can produce specs as they were at a point in time.
+Specs can be generated from a saved **canonical model version snapshot** to produce specs as they were at a point in time.
 
-### 9. Version the Canonical Model (optional)
+### 10. Version the Canonical Model (optional)
 
-Cut a named version (e.g. `v1.0`) to snapshot the current state of the canonical model. View the diff between any two versions to see what fields were added, removed, or changed.
+Cut a named version (e.g. `v1.0`) to snapshot the current state of the canonical model (entities + fields). View the diff between any two versions to see what fields were added, removed, or changed.
+
+### UI niceties
+
+- **Search bars** on every list page (Workspaces, Canonical Fields, Systems, Interfaces, Mappings)
+- **Rule type badges** with hover tooltips on the mapping list
+- **Wide modals** for Swagger and Spec Sheet views
 
 ---
 
@@ -179,12 +198,15 @@ Key endpoints:
 | `GET/POST /api/v1/workspaces/:wId/canonical-entities` | Canonical entities |
 | `GET/POST /api/v1/workspaces/:wId/canonical-fields` | Canonical fields (supports `?entityId`, `?dataType`, `?tags`, `?mapped`, `?search` filters) |
 | `GET/POST /api/v1/workspaces/:wId/systems` | Systems |
-| `GET/POST /api/v1/workspaces/:wId/mappings` | Mappings |
+| `GET/POST /api/v1/workspaces/:wId/mappings` | Mappings (list includes full transformation rule data) |
 | `PUT /api/v1/workspaces/:wId/mappings/:mId/rule` | Set transformation rule (atomic replace) |
+| `GET/POST /api/v1/workspaces/:wId/interfaces` | Interfaces |
+| `GET/POST /api/v1/workspaces/:wId/interfaces/:iId/fields` | Interface fields (supports `maxLength`) |
 | `GET /api/v1/workspaces/:wId/trace/:canonicalFieldId` | Trace field across all systems |
-| `POST /api/v1/workspaces/:wId/export/openapi` | Generate OpenAPI spec |
-| `POST /api/v1/workspaces/:wId/export/json-schema` | Generate JSON Schema |
+| `POST /api/v1/workspaces/:wId/export/openapi` | Generate OpenAPI spec (accepts `versionId`) |
+| `POST /api/v1/workspaces/:wId/export/json-schema` | Generate JSON Schema (accepts `versionId`) |
 | `GET /api/v1/workspaces/:wId/export/workspace` | Full workspace JSON export |
+| `GET/POST /api/v1/workspaces/:wId/versions` | Canonical model versions |
 
 See `decisions/ADR-004-api-design.md` for the complete endpoint map, response shapes, and error codes.
 
@@ -199,27 +221,51 @@ See `decisions/ADR-004-api-design.md` for the complete endpoint map, response sh
 │  ┌─────────────────┐  ┌───────────────────────┐  │
 │  │   Frontend       │  │   Backend API          │  │
 │  │   React SPA      │  │   Fastify + TypeScript │  │
-│  │   Nginx :80      │  │   :3000                │  │
+│  │   Nginx :80      │  │   :3099 (ext) :3000    │  │
 │  └────────┬─────────┘  │                        │  │
 │           │ /api proxy  │  ┌──────────────────┐  │  │
 │           └─────────────┤  │ Registry Service │  │  │
 │                         │  │ Trace Engine     │  │  │
 │                         │  │ Spec Generator   │  │  │
+│                         │  │ Excel Import/Exp │  │  │
 │                         │  └────────┬─────────┘  │  │
 │                         └───────────┼────────────┘  │
 │                                     │               │
 │                         ┌───────────▼────────────┐  │
 │                         │   PostgreSQL 16         │  │
-│                         │   :5432                 │  │
+│                         │   :5433 (ext) :5432     │  │
 │                         └────────────────────────┘  │
 └──────────────────────────────────────────────────┘
 ```
 
 - **Registry Service** — CRUD for canonical fields, systems, entities, mappings (Prisma ORM)
 - **Trace Engine** — Graph traversal via recursive SQL CTEs (postgres.js, raw SQL)
-- **Spec Generator** — In-process OpenAPI/JSON Schema generation
+- **Spec Generator** — In-process OpenAPI 3.0 / JSON Schema generation (supports versioned snapshots)
 
-Architecture decisions are documented in `decisions/`.
+### Database
+
+Key additions in this edition:
+
+- **Canonical model versioning**: `model_versions`, `model_version_snapshots`, `model_version_diffs`
+- **Interface fields**: `max_length` column for string-like constraints
+
+All tables are workspace-scoped. IDs are UUIDs. Architecture decisions are documented in `decisions/`.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | Node.js + TypeScript + Fastify |
+| ORM | Prisma (CRUD) + postgres.js (raw SQL for trace) |
+| Database | PostgreSQL 16 |
+| Frontend | Vite + React 19 + TypeScript + TanStack Query v5 + React Router v7 |
+| UI | Tailwind CSS + shadcn/ui patterns |
+| Graph Viz | React Flow (`@xyflow/react`) |
+| Spec Gen | openapi3-ts + js-yaml |
+| Swagger UI | swagger-ui-react (lazy-loaded) |
+| Testing | Vitest + Supertest (backend), Vitest + RTL (frontend) |
 
 ---
 
@@ -228,7 +274,7 @@ Architecture decisions are documented in `decisions/`.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | — | PostgreSQL connection string |
-| `BACKEND_PORT` | `3000` | Backend server port |
+| `BACKEND_PORT` | `3000` | Backend server port (container-internal) |
 | `LOG_LEVEL` | `info` | Pino log level (`debug`, `info`, `warn`, `error`) |
 | `VITE_API_BASE_URL` | `` | API base URL (set at frontend build time; empty uses relative path) |
 

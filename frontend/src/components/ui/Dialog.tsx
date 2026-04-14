@@ -6,9 +6,11 @@ interface DialogProps {
   title: string
   children: ReactNode
   footer?: ReactNode
+  wide?: boolean
+  fullWidth?: boolean
 }
 
-export function Dialog({ open, onClose, title, children, footer }: DialogProps) {
+export function Dialog({ open, onClose, title, children, footer, wide, fullWidth }: DialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
 
   const handleKeyDown = useCallback(
@@ -39,7 +41,7 @@ export function Dialog({ open, onClose, title, children, footer }: DialogProps) 
         if (e.target === overlayRef.current) onClose()
       }}
     >
-      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] flex flex-col">
+      <div className={`bg-white rounded-lg shadow-xl w-full mx-4 max-h-[90vh] flex flex-col ${fullWidth ? 'max-w-[95vw]' : wide ? 'max-w-6xl' : 'max-w-lg'}`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
           <button

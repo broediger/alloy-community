@@ -463,6 +463,7 @@ model InterfaceField {
   dataType         String?              @map("data_type")
   description      String?
   nullable         Boolean              @default(true)
+  maxLength        Int?                 @map("max_length")
   status           InterfaceFieldStatus
   createdAt        DateTime             @default(now()) @map("created_at")
   updatedAt        DateTime             @updatedAt @map("updated_at")

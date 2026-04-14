@@ -25,6 +25,8 @@ export function InterfaceListPage() {
   const updateMutation = useUpdateInterface(workspaceId!)
   const deleteMutation = useDeleteInterface(workspaceId!)
 
+  const [search, setSearch] = useState('')
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -218,9 +220,24 @@ export function InterfaceListPage() {
         <Button onClick={() => setDialogOpen(true)}>Create Interface</Button>
       </div>
 
+      <Input
+        placeholder="Search interfaces..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="mb-4"
+      />
+
       <Table
         columns={columns}
-        data={data?.items ?? []}
+        data={(data?.items ?? []).filter((i) => {
+          if (!search) return true
+          const q = search.toLowerCase()
+          return (
+            i.name.toLowerCase().includes(q) ||
+            (i.sourceSystem?.name ?? '').toLowerCase().includes(q) ||
+            (i.targetSystem?.name ?? '').toLowerCase().includes(q)
+          )
+        })}
         keyFn={(i) => i.id}
         onRowClick={(i) => navigate(`/workspaces/${workspaceId}/interfaces/${i.id}`)}
         emptyMessage="No interfaces yet."

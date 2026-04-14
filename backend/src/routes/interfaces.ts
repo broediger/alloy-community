@@ -39,6 +39,7 @@ const createFieldSchema = {
     dataType: { type: 'string', enum: ['STRING', 'INTEGER', 'DECIMAL', 'BOOLEAN', 'DATE', 'DATETIME', 'ENUM', 'OBJECT', 'ARRAY'] },
     description: { type: 'string' },
     nullable: { type: 'boolean' },
+    maxLength: { type: 'integer', minimum: 1 },
     status: { type: 'string', enum: ['MANDATORY', 'OPTIONAL', 'EXCLUDED'] },
   },
   additionalProperties: false,
@@ -53,6 +54,7 @@ const updateFieldSchema = {
     dataType: { type: 'string', enum: ['STRING', 'INTEGER', 'DECIMAL', 'BOOLEAN', 'DATE', 'DATETIME', 'ENUM', 'OBJECT', 'ARRAY'] },
     description: { type: 'string' },
     nullable: { type: 'boolean' },
+    maxLength: { type: ['integer', 'null'], minimum: 1 },
   },
   additionalProperties: false,
 }

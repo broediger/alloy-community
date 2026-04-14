@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import {
   useInterface,
@@ -17,6 +17,10 @@ import { useToast } from '../../components/ui/Toast.js'
 import { getErrorMessage } from '../../lib/api.js'
 import { api, triggerDownload } from '../../lib/api.js'
 import type { InterfaceFieldResolved, InterfaceFieldStatus, DataType } from '../../lib/types.js'
+import { SpecSheetDialog } from './SpecSheetDialog.js'
+
+const SwaggerUI = lazy(() => import('swagger-ui-react'))
+import 'swagger-ui-react/swagger-ui.css'
 
 const STATUS_OPTIONS: Array<{ value: InterfaceFieldStatus; label: string }> = [
   { value: 'MANDATORY', label: 'Mandatory' },
@@ -62,6 +66,14 @@ export function InterfaceDetailPage() {
   const [ulStatus, setUlStatus] = useState<InterfaceFieldStatus>('OPTIONAL')
 
   const [exporting, setExporting] = useState(false)
+
+  // Swagger preview
+  const [swaggerSpec, setSwaggerSpec] = useState<Record<string, unknown> | null>(null)
+  const [swaggerOpen, setSwaggerOpen] = useState(false)
+
+  // Spec sheet
+  const [specSheetOpen, setSpecSheetOpen] = useState(false)
+
 
   async function handleAddField() {
     if (!newCanonicalFieldId) return
@@ -132,6 +144,24 @@ export function InterfaceDetailPage() {
       })
       triggerDownload(blob, `openapi-${iface.name}.${format === 'yaml' ? 'yaml' : 'json'}`)
       toast('success', 'OpenAPI spec downloaded')
+    } catch (err) {
+      toast('error', getErrorMessage(err))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  async function handleSwaggerPreview() {
+    if (!iface) return
+    setExporting(true)
+    try {
+      const blob = await api.export.openapi(workspaceId!, {
+        systemId: iface.sourceSystemId,
+        format: 'json',
+      })
+      const text = await blob.text()
+      setSwaggerSpec(JSON.parse(text))
+      setSwaggerOpen(true)
     } catch (err) {
       toast('error', getErrorMessage(err))
     } finally {
@@ -223,6 +253,12 @@ export function InterfaceDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setSpecSheetOpen(true)}>
+            Spec Sheet
+          </Button>
+          <Button variant="secondary" size="sm" onClick={handleSwaggerPreview} disabled={exporting}>
+            Swagger
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => handleExportOpenApi('yaml')} disabled={exporting}>
             Export YAML
           </Button>
@@ -374,6 +410,36 @@ export function InterfaceDetailPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Swagger preview */}
+      <Dialog
+        open={swaggerOpen}
+        onClose={() => setSwaggerOpen(false)}
+        title="API Preview"
+        wide
+        footer={
+          <Button variant="secondary" onClick={() => setSwaggerOpen(false)}>
+            Close
+          </Button>
+        }
+      >
+        {swaggerSpec && (
+          <Suspense fallback={<Spinner />}>
+            <SwaggerUI spec={swaggerSpec} />
+          </Suspense>
+        )}
+      </Dialog>
+
+      {/* Spec sheet */}
+      {iface && (
+        <SpecSheetDialog
+          open={specSheetOpen}
+          onClose={() => setSpecSheetOpen(false)}
+          iface={iface}
+          canonicalFields={canonicalFields?.items ?? []}
+          canonicalEntities={canonicalEntities?.items ?? []}
+        />
       )}
 
       {/* Add canonical field dialog */}

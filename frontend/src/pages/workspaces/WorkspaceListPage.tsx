@@ -17,6 +17,8 @@ export function WorkspaceListPage() {
   const createMutation = useCreateWorkspace()
   const updateMutation = useUpdateWorkspace()
 
+  const [search, setSearch] = useState('')
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
@@ -145,9 +147,20 @@ export function WorkspaceListPage() {
         <Button onClick={() => setDialogOpen(true)}>Create Workspace</Button>
       </div>
 
+      <Input
+        placeholder="Search workspaces..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="mb-4"
+      />
+
       <Table
         columns={columns}
-        data={data?.items ?? []}
+        data={(data?.items ?? []).filter((w) => {
+          if (!search) return true
+          const q = search.toLowerCase()
+          return w.name.toLowerCase().includes(q) || w.slug.toLowerCase().includes(q)
+        })}
         keyFn={(w) => w.id}
         onRowClick={(w) => navigate(`/workspaces/${w.id}`)}
         emptyMessage="No workspaces yet. Create one to get started."

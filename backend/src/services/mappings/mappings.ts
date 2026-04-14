@@ -46,7 +46,13 @@ export async function list(workspaceId: string, filters: MappingFilters) {
           entity: { select: { id: true, name: true, systemId: true, system: { select: { id: true, name: true } } } },
         },
       },
-      transformationRule: { select: { id: true, type: true } },
+      transformationRule: {
+        include: {
+          valueMapEntries: { orderBy: { fromValue: 'asc' as const } },
+          composeRuleFields: { orderBy: { position: 'asc' as const } },
+          decomposeRuleFields: { orderBy: { position: 'asc' as const } },
+        },
+      },
     },
     orderBy: { createdAt: 'desc' },
   })

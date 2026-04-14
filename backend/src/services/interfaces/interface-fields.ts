@@ -8,6 +8,7 @@ export interface CreateInterfaceFieldBody {
   dataType?: string
   description?: string
   nullable?: boolean
+  maxLength?: number
   status: string
 }
 
@@ -18,6 +19,7 @@ export interface UpdateInterfaceFieldBody {
   dataType?: string
   description?: string
   nullable?: boolean
+  maxLength?: number | null
 }
 
 export async function list(workspaceId: string, interfaceId: string) {
@@ -62,6 +64,7 @@ export async function create(workspaceId: string, interfaceId: string, body: Cre
       data: {
         interfaceId,
         canonicalFieldId: body.canonicalFieldId,
+        maxLength: body.maxLength ?? null,
         status: body.status as any,
       },
       include: {
@@ -93,6 +96,7 @@ export async function create(workspaceId: string, interfaceId: string, body: Cre
       dataType: body.dataType,
       description: body.description ?? null,
       nullable: body.nullable ?? true,
+      maxLength: body.maxLength ?? null,
       status: body.status as any,
     },
   })
@@ -112,6 +116,7 @@ export async function update(workspaceId: string, interfaceId: string, id: strin
   const data: any = {}
 
   if (body.status !== undefined) data.status = body.status
+  if (body.maxLength !== undefined) data.maxLength = body.maxLength
 
   // Only allow metadata updates on unlinked fields
   if (body.name !== undefined || body.displayName !== undefined || body.dataType !== undefined || body.description !== undefined || body.nullable !== undefined) {

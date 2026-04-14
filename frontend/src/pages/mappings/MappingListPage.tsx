@@ -7,7 +7,7 @@ import {
   useDeleteMapping,
   usePutTransformationRule,
 } from '../../hooks/useMappings.js'
-import { useCanonicalFields } from '../../hooks/useCanonical.js'
+import { useCanonicalFields, useCanonicalSubfields } from '../../hooks/useCanonical.js'
 import { useSystems, useSystemEntities, useSystemFields } from '../../hooks/useSystems.js'
 import { Button } from '../../components/ui/Button.js'
 import { Input } from '../../components/ui/Input.js'
@@ -37,6 +37,7 @@ export function MappingListPage() {
   const { toast } = useToast()
 
   // Filters
+  const [search, setSearch] = useState('')
   const [filterCanonicalFieldId, setFilterCanonicalFieldId] = useState('')
   const [filterSystemId, setFilterSystemId] = useState('')
   const [filterEntityId, setFilterEntityId] = useState('')
@@ -77,9 +78,18 @@ export function MappingListPage() {
   >([])
   const [typeCastFrom, setTypeCastFrom] = useState('')
   const [typeCastTo, setTypeCastTo] = useState('')
+  const [composeFields, setComposeFields] = useState<
+    Array<{ systemFieldId: string; subfieldId: string }>
+  >([])
 
   // Delete
   const [deleteTarget, setDeleteTarget] = useState<Mapping | null>(null)
+
+  // Subfields for compose/decompose picker
+  const { data: subfieldsData } = useCanonicalSubfields(
+    workspaceId,
+    ruleMapping?.canonicalFieldId ?? undefined
+  )
 
   async function handleCreateMapping() {
     if (!newCanonicalFieldId) return
@@ -117,6 +127,7 @@ export function MappingListPage() {
     setValueMapEntries([])
     setTypeCastFrom('')
     setTypeCastTo('')
+    setComposeFields([])
     setRuleOpen(true)
   }
 
@@ -127,6 +138,12 @@ export function MappingListPage() {
       data.config = { from: typeCastFrom, to: typeCastTo }
     } else if (ruleType === 'VALUE_MAP') {
       data.entries = valueMapEntries
+    } else if (ruleType === 'COMPOSE' || ruleType === 'DECOMPOSE') {
+      data.fields = composeFields.map((f, idx) => ({
+        systemFieldId: f.systemFieldId,
+        subfieldId: f.subfieldId,
+        position: idx,
+      }))
     }
     try {
       await putRuleMutation.mutateAsync({ mappingId: ruleMapping.id, data })
@@ -163,6 +180,28 @@ export function MappingListPage() {
     setValueMapEntries(valueMapEntries.filter((_, i) => i !== idx))
   }
 
+  function addComposeField() {
+    setComposeFields([...composeFields, { systemFieldId: '', subfieldId: '' }])
+  }
+
+  function updateComposeField(idx: number, field: 'systemFieldId' | 'subfieldId', value: string) {
+    const updated = [...composeFields]
+    updated[idx] = { ...updated[idx], [field]: value }
+    setComposeFields(updated)
+  }
+
+  function removeComposeField(idx: number) {
+    setComposeFields(composeFields.filter((_, i) => i !== idx))
+  }
+
+  function moveComposeField(idx: number, direction: -1 | 1) {
+    const target = idx + direction
+    if (target < 0 || target >= composeFields.length) return
+    const updated = [...composeFields]
+    ;[updated[idx], updated[target]] = [updated[target], updated[idx]]
+    setComposeFields(updated)
+  }
+
   // Build name lookups
   const cfNameMap = new Map(
     (canonicalFields?.items ?? []).map((f) => [f.id, f.displayName])
@@ -170,6 +209,54 @@ export function MappingListPage() {
   const sfMap = new Map(
     (systemFields?.items ?? []).map((f) => [f.id, f.name])
   )
+
+  function ruleTooltip(m: Mapping): string {
+    const rule = m.transformationRule
+    if (!rule) return ''
+    switch (rule.type) {
+      case 'RENAME':
+        return 'Rename (field name mapping)'
+      case 'TYPE_CAST': {
+        const from = (rule.config as any)?.from ?? '?'
+        const to = (rule.config as any)?.to ?? '?'
+        return `Type cast: ${from} \u2192 ${to}`
+      }
+      case 'VALUE_MAP': {
+        const entries = rule.valueMapEntries ?? []
+        if (entries.length === 0) return 'Value map (no entries)'
+        const lines = entries.slice(0, 5).map((e) => `${e.fromValue} \u2192 ${e.toValue}`)
+        if (entries.length > 5) lines.push(`\u2026 +${entries.length - 5} more`)
+        return lines.join('\n')
+      }
+      case 'COMPOSE': {
+        const fields = rule.composeRuleFields ?? []
+        if (fields.length === 0) return 'Compose (no fields)'
+        return `Compose: ${fields.length} field${fields.length > 1 ? 's' : ''}`
+      }
+      case 'DECOMPOSE': {
+        const fields = rule.decomposeRuleFields ?? []
+        if (fields.length === 0) return 'Decompose (no fields)'
+        return `Decompose: ${fields.length} field${fields.length > 1 ? 's' : ''}`
+      }
+      default:
+        return rule.type
+    }
+  }
+
+  const filteredMappings = (mappingsData?.items ?? []).filter((m) => {
+    if (!search) return true
+    const q = search.toLowerCase()
+    const cfName = (m.canonicalFieldId ? cfNameMap.get(m.canonicalFieldId) : 'subfield') ?? ''
+    const sfName = m.systemField?.name ?? sfMap.get(m.systemFieldId ?? '') ?? ''
+    const sysName = m.systemField?.entity?.system?.name ?? ''
+    const ruleType = m.transformationRule?.type ?? ''
+    return (
+      cfName.toLowerCase().includes(q) ||
+      sfName.toLowerCase().includes(q) ||
+      sysName.toLowerCase().includes(q) ||
+      ruleType.toLowerCase().includes(q)
+    )
+  })
 
   if (isLoading) return <Spinner />
 
@@ -182,6 +269,13 @@ export function MappingListPage() {
         </div>
         <Button onClick={() => setCreateOpen(true)}>Create Mapping</Button>
       </div>
+
+      <Input
+        placeholder="Search mappings..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="mb-4"
+      />
 
       {/* Filters */}
       <div className="flex gap-3 mb-4">
@@ -225,11 +319,11 @@ export function MappingListPage() {
       </div>
 
       {/* Mapping list */}
-      {(mappingsData?.items ?? []).length === 0 ? (
+      {filteredMappings.length === 0 ? (
         <div className="text-center py-12 text-gray-500 text-sm">No mappings found.</div>
       ) : (
         <div className="border border-gray-200 rounded-lg divide-y divide-gray-200">
-          {(mappingsData?.items ?? []).map((m) => (
+          {filteredMappings.map((m) => (
             <div
               key={m.id}
               className="flex items-center justify-between px-4 py-3 hover:bg-gray-50"
@@ -251,6 +345,14 @@ export function MappingListPage() {
                     ) : 'Composite'}
                   </span>
                 </div>
+                {m.transformationRule && (
+                  <span className="relative group">
+                    <Badge variant="default">{m.transformationRule.type}</Badge>
+                    <span className="absolute left-0 top-full mt-1 z-10 hidden group-hover:block bg-gray-900 text-white text-xs rounded px-3 py-2 whitespace-pre shadow-lg max-w-xs">
+                      {ruleTooltip(m)}
+                    </span>
+                  </span>
+                )}
                 {m.deprecated && <Badge variant="warning">Deprecated</Badge>}
               </div>
               <div className="flex items-center gap-2">
@@ -336,7 +438,15 @@ export function MappingListPage() {
             <Button variant="secondary" onClick={() => setRuleOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleSaveRule} disabled={putRuleMutation.isPending}>
+            <Button
+              onClick={handleSaveRule}
+              disabled={
+                putRuleMutation.isPending ||
+                ((ruleType === 'COMPOSE' || ruleType === 'DECOMPOSE') &&
+                  (composeFields.length === 0 ||
+                    composeFields.some((f) => !f.systemFieldId || !f.subfieldId)))
+              }
+            >
               {putRuleMutation.isPending ? 'Saving...' : 'Save Rule'}
             </Button>
           </>
@@ -415,11 +525,76 @@ export function MappingListPage() {
           )}
 
           {(ruleType === 'COMPOSE' || ruleType === 'DECOMPOSE') && (
-            <div className="text-sm text-gray-500">
-              <p>
-                Configure compose/decompose field mappings by selecting system fields and mapping
-                them to canonical subfields. Use the mapping detail view for full configuration.
-              </p>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-gray-700">
+                  {ruleType === 'COMPOSE' ? 'System Fields \u2192 Subfields' : 'Subfields \u2192 System Fields'}
+                </p>
+                <Button size="sm" variant="secondary" onClick={addComposeField}>
+                  Add Row
+                </Button>
+              </div>
+              {(subfieldsData ?? []).length === 0 && (
+                <p className="text-sm text-amber-600">
+                  The canonical field has no subfields. Add subfields first to use {ruleType.toLowerCase()}.
+                </p>
+              )}
+              {composeFields.map((row, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-5 text-right shrink-0">{idx + 1}</span>
+                  <Select
+                    options={[
+                      { value: '', label: 'System field...' },
+                      ...(systemFields?.items ?? []).map((f) => ({
+                        value: f.id,
+                        label: f.name,
+                      })),
+                    ]}
+                    value={row.systemFieldId}
+                    onChange={(e) => updateComposeField(idx, 'systemFieldId', e.target.value)}
+                  />
+                  <span className="text-gray-400 shrink-0">&harr;</span>
+                  <Select
+                    options={[
+                      { value: '', label: 'Subfield...' },
+                      ...(subfieldsData ?? []).map((s) => ({
+                        value: s.id,
+                        label: `${s.displayName} (${s.name})`,
+                      })),
+                    ]}
+                    value={row.subfieldId}
+                    onChange={(e) => updateComposeField(idx, 'subfieldId', e.target.value)}
+                  />
+                  <div className="flex shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => moveComposeField(idx, -1)}
+                      disabled={idx === 0}
+                    >
+                      &uarr;
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => moveComposeField(idx, 1)}
+                      disabled={idx === composeFields.length - 1}
+                    >
+                      &darr;
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeComposeField(idx)}
+                    >
+                      &times;
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {composeFields.length === 0 && (subfieldsData ?? []).length > 0 && (
+                <p className="text-sm text-gray-400">No field mappings yet. Click "Add Row" to start.</p>
+              )}
             </div>
           )}
 

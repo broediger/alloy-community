@@ -26,6 +26,8 @@ export function CanonicalEntityListPage() {
   const updateMutation = useUpdateCanonicalEntity(workspaceId!)
   const deleteMutation = useDeleteCanonicalEntity(workspaceId!)
 
+  const [search, setSearch] = useState('')
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
@@ -180,9 +182,20 @@ export function CanonicalEntityListPage() {
         <Button onClick={() => setDialogOpen(true)}>Create Entity</Button>
       </div>
 
+      <Input
+        placeholder="Search entities..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="mb-4"
+      />
+
       <Table
         columns={columns}
-        data={data?.items ?? []}
+        data={(data?.items ?? []).filter((e) => {
+          if (!search) return true
+          const q = search.toLowerCase()
+          return e.name.toLowerCase().includes(q) || e.slug.toLowerCase().includes(q)
+        })}
         keyFn={(e) => e.id}
         onRowClick={(e) =>
           navigate(`/workspaces/${workspaceId}/canonical/entities/${e.id}`)

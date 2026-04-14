@@ -96,6 +96,7 @@ export async function getById(workspaceId: string, id: string) {
           dataType: f.dataType,
           description: f.description,
           nullable: f.nullable,
+          maxLength: f.maxLength,
           status: f.status,
           createdAt: f.createdAt,
           updatedAt: f.updatedAt,
@@ -121,7 +122,13 @@ export async function getById(workspaceId: string, id: string) {
               entity: { select: { id: true, name: true } },
             },
           },
-          transformationRule: { select: { id: true, type: true } },
+          transformationRule: {
+            include: {
+              valueMapEntries: { orderBy: { fromValue: 'asc' as const } },
+              composeRuleFields: { orderBy: { position: 'asc' as const } },
+              decomposeRuleFields: { orderBy: { position: 'asc' as const } },
+            },
+          },
         },
       })
 
@@ -142,7 +149,13 @@ export async function getById(workspaceId: string, id: string) {
               entity: { select: { id: true, name: true } },
             },
           },
-          transformationRule: { select: { id: true, type: true } },
+          transformationRule: {
+            include: {
+              valueMapEntries: { orderBy: { fromValue: 'asc' as const } },
+              composeRuleFields: { orderBy: { position: 'asc' as const } },
+              decomposeRuleFields: { orderBy: { position: 'asc' as const } },
+            },
+          },
         },
       })
 
@@ -156,7 +169,13 @@ export async function getById(workspaceId: string, id: string) {
           entityName: m.systemField?.entity?.name ?? null,
           deprecated: m.deprecated,
           transformationRule: m.transformationRule
-            ? { type: m.transformationRule.type }
+            ? {
+                type: m.transformationRule.type,
+                config: m.transformationRule.config,
+                valueMapEntries: (m.transformationRule as any).valueMapEntries ?? [],
+                composeRuleFields: (m.transformationRule as any).composeRuleFields ?? [],
+                decomposeRuleFields: (m.transformationRule as any).decomposeRuleFields ?? [],
+              }
             : null,
         }
       }
@@ -171,6 +190,7 @@ export async function getById(workspaceId: string, id: string) {
         dataType: null,
         description: null,
         nullable: true,
+        maxLength: f.maxLength,
         status: f.status,
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,

@@ -31,6 +31,8 @@ export function SystemListPage() {
   const updateMutation = useUpdateSystem(workspaceId!)
   const deleteMutation = useDeleteSystem(workspaceId!)
 
+  const [search, setSearch] = useState('')
+
   const [dialogOpen, setDialogOpen] = useState(false)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -183,9 +185,20 @@ export function SystemListPage() {
         <Button onClick={() => setDialogOpen(true)}>Create System</Button>
       </div>
 
+      <Input
+        placeholder="Search systems..."
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="mb-4"
+      />
+
       <Table
         columns={columns}
-        data={data?.items ?? []}
+        data={(data?.items ?? []).filter((s) => {
+          if (!search) return true
+          const q = search.toLowerCase()
+          return s.name.toLowerCase().includes(q) || s.systemType.toLowerCase().includes(q)
+        })}
         keyFn={(s) => s.id}
         onRowClick={(s) => navigate(`/workspaces/${workspaceId}/systems/${s.id}`)}
         emptyMessage="No systems yet."
