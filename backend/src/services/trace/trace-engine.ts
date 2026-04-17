@@ -63,7 +63,7 @@ export interface TraceResult {
   }>
 }
 
-export async function traceCanonicalField(workspaceId: string, canonicalFieldId: string): Promise<TraceResult> {
+export async function traceCanonicalField(workspaceId: string, canonicalFieldId: string): Promise<TraceResult | null> {
   try {
     // Get canonical field info
     const fieldRows = await sql`
@@ -77,7 +77,7 @@ export async function traceCanonicalField(workspaceId: string, canonicalFieldId:
     `
 
     if (fieldRows.length === 0) {
-      return null as any // Will be handled by route as 404
+      return null
     }
 
     const canonicalField = fieldRows[0] as TraceResult['canonicalField']
