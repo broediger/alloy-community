@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError, ConflictError, ValidationError } from '../../errors/index.js'
 
@@ -60,7 +61,7 @@ export async function update(workspaceId: string, canonicalFieldId: string, id: 
     if (existing) throw new ConflictError(`An enum value with code '${body.code}' already exists for this field`)
   }
 
-  const data: any = {}
+  const data: Prisma.CanonicalEnumValueUpdateInput = {}
   if (body.code !== undefined) data.code = body.code
   if (body.label !== undefined) data.label = body.label
 

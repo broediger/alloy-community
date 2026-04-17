@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError, DeleteConflictError, ConflictError } from '../../errors/index.js'
 
@@ -122,10 +123,10 @@ export async function update(workspaceId: string, id: string, body: UpdateSystem
     if (existing) throw new ConflictError(`A system with name '${body.name}' already exists in this workspace`)
   }
 
-  const data: any = {}
+  const data: Prisma.SystemUpdateInput = {}
   if (body.name !== undefined) data.name = body.name
   if (body.description !== undefined) data.description = body.description
-  if (body.systemType !== undefined) data.systemType = body.systemType
+  if (body.systemType !== undefined) data.systemType = body.systemType as Prisma.SystemUpdateInput['systemType']
   if (body.baseUrl !== undefined) data.baseUrl = body.baseUrl
   if (body.notes !== undefined) data.notes = body.notes
 

@@ -12,6 +12,7 @@ import {
   useUpdateCanonicalEnumValue,
   useDeleteCanonicalEnumValue,
   useReorderCanonicalEnumValues,
+  useCanonicalEntities,
 } from '../../hooks/useCanonical.js'
 import { Button } from '../../components/ui/Button.js'
 import { Input } from '../../components/ui/Input.js'
@@ -21,7 +22,7 @@ import { Dialog } from '../../components/ui/Dialog.js'
 import { Spinner } from '../../components/ui/Spinner.js'
 import { useToast } from '../../components/ui/Toast.js'
 import { getErrorMessage } from '../../lib/api.js'
-import type { DataType, CanonicalSubfield, CanonicalEnumValue } from '../../lib/types.js'
+import type { DataType, CanonicalSubfield, CanonicalEnumValue, FieldCardinality } from '../../lib/types.js'
 
 const DATA_TYPES: Array<{ value: DataType; label: string }> = [
   { value: 'STRING', label: 'String' },
@@ -41,6 +42,7 @@ export function CanonicalFieldDetailPage() {
   const { toast } = useToast()
 
   const { data: field, isLoading } = useCanonicalField(workspaceId, fieldId)
+  const { data: entities } = useCanonicalEntities(workspaceId)
   const updateFieldMutation = useUpdateCanonicalField(workspaceId!)
   const createSubfieldMutation = useCreateCanonicalSubfield(workspaceId!, fieldId!)
   const deleteSubfieldMutation = useDeleteCanonicalSubfield(workspaceId!, fieldId!)
@@ -59,6 +61,9 @@ export function CanonicalFieldDetailPage() {
   const [editDataType, setEditDataType] = useState<DataType>('STRING')
   const [editNullable, setEditNullable] = useState(true)
   const [editTags, setEditTags] = useState('')
+  const [editReferencedEntityId, setEditReferencedEntityId] = useState('')
+  const [editCardinality, setEditCardinality] = useState<FieldCardinality | ''>('')
+  const [editItemsDataType, setEditItemsDataType] = useState<DataType | ''>('')
 
   // Add subfield
   const [subfieldOpen, setSubfieldOpen] = useState(false)
@@ -85,6 +90,9 @@ export function CanonicalFieldDetailPage() {
     setEditDataType(field.dataType)
     setEditNullable(field.nullable)
     setEditTags(field.tags.join(', '))
+    setEditReferencedEntityId((field as any).referencedEntityId ?? '')
+    setEditCardinality((field as any).cardinality ?? '')
+    setEditItemsDataType((field as any).itemsDataType ?? '')
     setEditOpen(true)
   }
 
@@ -101,6 +109,9 @@ export function CanonicalFieldDetailPage() {
             .split(',')
             .map((t) => t.trim())
             .filter(Boolean),
+          referencedEntityId: editReferencedEntityId || null,
+          cardinality: editReferencedEntityId ? (editCardinality || null) : null,
+          itemsDataType: editItemsDataType || null,
         },
       })
       setEditOpen(false)
@@ -229,6 +240,15 @@ export function CanonicalFieldDetailPage() {
             <span className="text-sm text-gray-500">{field.name}</span>
             <Badge variant="info">{field.dataType}</Badge>
             {field.isComposite && <Badge variant="warning">Composite</Badge>}
+            {(field as any).referencedEntityId && (
+              <Badge variant="success">
+                {(field as any).cardinality === 'MANY' ? '1:n' : '1:1'} \u2192{' '}
+                {(entities?.items ?? []).find((e) => e.id === (field as any).referencedEntityId)?.name ?? '?'}
+              </Badge>
+            )}
+            {(field as any).itemsDataType && (
+              <Badge variant="default">[{(field as any).itemsDataType}]</Badge>
+            )}
             {field.nullable && <Badge>Nullable</Badge>}
           </div>
         </div>
@@ -498,6 +518,47 @@ export function CanonicalFieldDetailPage() {
             value={editTags}
             onChange={(e) => setEditTags(e.target.value)}
           />
+
+          {/* Relationship / collection */}
+          <div className="border-t border-gray-200 pt-4 mt-4">
+            <p className="text-sm font-medium text-gray-700 mb-2">Relationship / Collection</p>
+            <div className="space-y-3">
+              <Select
+                label="Referenced Entity (for entity references like 'addresses[] \u2192 Address')"
+                options={[
+                  { value: '', label: 'None (scalar / inline composite)' },
+                  ...(entities?.items ?? [])
+                    .filter((e) => e.id !== field?.entityId)
+                    .map((e) => ({ value: e.id, label: e.name })),
+                ]}
+                value={editReferencedEntityId}
+                onChange={(e) => setEditReferencedEntityId(e.target.value)}
+              />
+              {editReferencedEntityId && (
+                <Select
+                  label="Cardinality"
+                  options={[
+                    { value: '', label: 'Select cardinality' },
+                    { value: 'ONE', label: '1:1 (single reference)' },
+                    { value: 'MANY', label: '1:n (collection)' },
+                  ]}
+                  value={editCardinality}
+                  onChange={(e) => setEditCardinality(e.target.value as FieldCardinality | '')}
+                />
+              )}
+              {editDataType === 'ARRAY' && !editReferencedEntityId && (
+                <Select
+                  label="Array Items Data Type (for primitive arrays like string[])"
+                  options={[
+                    { value: '', label: 'Select item type' },
+                    ...DATA_TYPES.filter((d) => d.value !== 'ARRAY' && d.value !== 'OBJECT'),
+                  ]}
+                  value={editItemsDataType}
+                  onChange={(e) => setEditItemsDataType(e.target.value as DataType | '')}
+                />
+              )}
+            </div>
+          </div>
         </div>
       </Dialog>
 

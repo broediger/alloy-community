@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError, DeleteConflictError, ConflictError, ValidationError } from '../../errors/index.js'
 
@@ -57,7 +58,7 @@ export async function create(workspaceId: string, parentFieldId: string, body: C
       name: body.name,
       displayName: body.displayName,
       description: body.description ?? null,
-      dataType: body.dataType as any,
+      dataType: body.dataType as Prisma.CanonicalSubfieldCreateInput['dataType'],
       format: body.format ?? null,
       nullable: body.nullable ?? true,
       position: nextPosition,
@@ -78,11 +79,11 @@ export async function update(workspaceId: string, parentFieldId: string, id: str
     if (existing) throw new ConflictError(`A subfield with name '${body.name}' already exists for this field`)
   }
 
-  const data: any = {}
+  const data: Prisma.CanonicalSubfieldUpdateInput = {}
   if (body.name !== undefined) data.name = body.name
   if (body.displayName !== undefined) data.displayName = body.displayName
   if (body.description !== undefined) data.description = body.description
-  if (body.dataType !== undefined) data.dataType = body.dataType
+  if (body.dataType !== undefined) data.dataType = body.dataType as Prisma.CanonicalSubfieldUpdateInput['dataType']
   if (body.format !== undefined) data.format = body.format
   if (body.nullable !== undefined) data.nullable = body.nullable
 

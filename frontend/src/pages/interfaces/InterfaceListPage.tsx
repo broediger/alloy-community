@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
-import { useInterfaces, useCreateInterface, useUpdateInterface, useDeleteInterface } from '../../hooks/useInterfaces.js'
+import { useInterfaces, useCreateInterface, useUpdateInterface, useDeleteInterface, useInterfaceVersions } from '../../hooks/useInterfaces.js'
 import { useSystems, useSystemEntities } from '../../hooks/useSystems.js'
 import { Button } from '../../components/ui/Button.js'
 import { Input } from '../../components/ui/Input.js'
@@ -13,7 +13,25 @@ import { ConfirmDialog } from '../../components/ConfirmDialog.js'
 import { useToast } from '../../components/ui/Toast.js'
 import { getErrorMessage } from '../../lib/api.js'
 import { Textarea } from '../../components/ui/Textarea.js'
-import type { InterfaceListItem, InterfaceDirection } from '../../lib/types.js'
+import type { InterfaceListItem, InterfaceDirection, InterfaceVersionStatus } from '../../lib/types.js'
+
+const VERSION_BADGE_VARIANT: Record<InterfaceVersionStatus, 'info' | 'success' | 'warning'> = {
+  DRAFT: 'info',
+  PUBLISHED: 'success',
+  DEPRECATED: 'warning',
+}
+
+function VersionCell({ workspaceId, interfaceId }: { workspaceId: string; interfaceId: string }) {
+  const { data } = useInterfaceVersions(workspaceId, interfaceId)
+  const latest = data?.items?.[0]
+  if (!latest) return <span className="text-xs text-gray-400">No version</span>
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-sm font-medium">{latest.label}</span>
+      <Badge variant={VERSION_BADGE_VARIANT[latest.status]}>{latest.status}</Badge>
+    </div>
+  )
+}
 
 export function InterfaceListPage() {
   const { workspaceId } = useParams()
@@ -174,6 +192,11 @@ export function InterfaceListPage() {
       render: (i) => (
         <Badge variant={i.direction === 'EVENT' ? 'warning' : 'info'}>{i.direction}</Badge>
       ),
+    },
+    {
+      key: 'version',
+      header: 'Version',
+      render: (i) => <VersionCell workspaceId={workspaceId!} interfaceId={i.id} />,
     },
     {
       key: 'actions',

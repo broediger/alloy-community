@@ -36,6 +36,7 @@ model Workspace {
   propagationChains          PropagationChain[]
   interfaces                 Interface[]
   modelVersions              ModelVersion[]
+  interfaceVersions          InterfaceVersion[]
 
   @@map("workspaces")
 }
@@ -53,8 +54,9 @@ model CanonicalEntity {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  workspace Workspace       @relation(fields: [workspaceId], references: [id])
-  fields    CanonicalField[]
+  workspace         Workspace       @relation(fields: [workspaceId], references: [id])
+  fields            CanonicalField[]
+  referencingFields CanonicalField[] @relation("ReferencedBy")
 
   @@unique([workspaceId, slug])
   @@map("canonical_entities")
@@ -72,6 +74,11 @@ enum DataType {
   ARRAY
 }
 
+enum FieldCardinality {
+  ONE
+  MANY
+}
+
 model CanonicalField {
   id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   workspaceId        String   @map("workspace_id") @db.Uuid
@@ -87,11 +94,16 @@ model CanonicalField {
   isComposite        Boolean  @default(false) @map("is_composite")
   compositionPattern String?  @map("composition_pattern")
   tags               String[]
+  // Collection / relationship
+  referencedEntityId String?           @map("referenced_entity_id") @db.Uuid
+  cardinality        FieldCardinality?
+  itemsDataType      DataType?         @map("items_data_type")
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   workspace         Workspace              @relation(fields: [workspaceId], references: [id])
   entity            CanonicalEntity        @relation(fields: [entityId], references: [id])
+  referencedEntity  CanonicalEntity?       @relation("ReferencedBy", fields: [referencedEntityId], references: [id])
   subfields         CanonicalSubfield[]
   examples          CanonicalFieldExample[]
   enumValues        CanonicalEnumValue[]
@@ -202,6 +214,7 @@ model SystemEntity {
   sourceRelationships   SystemEntityRelationship[] @relation("SourceEntity")
   targetRelationships   SystemEntityRelationship[] @relation("TargetEntity")
   interfaceBindings     InterfaceEntityBinding[]
+  mappings              Mapping[]                  @relation("EntityMappings")
 
   @@unique([systemId, slug])
   @@map("system_entities")
@@ -267,19 +280,23 @@ model Mapping {
   canonicalFieldId    String?  @map("canonical_field_id") @db.Uuid
   canonicalSubfieldId String?  @map("canonical_subfield_id") @db.Uuid
   systemFieldId       String?  @map("system_field_id") @db.Uuid
+  systemEntityId      String?  @map("system_entity_id") @db.Uuid
   notes               String?
   deprecated          Boolean  @default(false)
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
-  // CHECK: exactly one of canonicalFieldId / canonicalSubfieldId is not null
-  // CHECK: systemFieldId is required unless transformationRule.type is COMPOSE or DECOMPOSE
-  // both enforced at application layer — Prisma does not support check constraints natively
+  // DB-level CHECK (migration 20260416173209_mappings_xor_constraints):
+  //   mappings_canonical_xor_chk — exactly one of canonicalFieldId / canonicalSubfieldId is not null
+  //   mappings_system_not_both_chk — at most one of systemFieldId / systemEntityId is set
+  // App-level rule: at least one of systemFieldId / systemEntityId unless rule type is COMPOSE/DECOMPOSE.
+  // Prisma does not support CHECK in the schema; constraints live in the SQL migration.
 
   workspace         Workspace           @relation(fields: [workspaceId], references: [id])
   canonicalField    CanonicalField?      @relation(fields: [canonicalFieldId], references: [id])
   canonicalSubfield CanonicalSubfield?   @relation(fields: [canonicalSubfieldId], references: [id])
   systemField       SystemField?         @relation(fields: [systemFieldId], references: [id])
+  systemEntity      SystemEntity?        @relation("EntityMappings", fields: [systemEntityId], references: [id])
   transformationRule TransformationRule?
 
   @@map("mappings")
@@ -436,6 +453,7 @@ model Interface {
   targetSystem   System                   @relation("TargetSystem", fields: [targetSystemId], references: [id])
   entityBindings InterfaceEntityBinding[]
   fields         InterfaceField[]
+  versions       InterfaceVersion[]
 
   @@map("interfaces")
 }
@@ -519,4 +537,56 @@ model ModelVersionDiff {
   version ModelVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
   @@map("model_version_diffs")
+}
+
+// ─────────────────────────────────────────────
+// INTERFACE VERSIONING
+// ─────────────────────────────────────────────
+
+enum InterfaceVersionStatus {
+  DRAFT
+  PUBLISHED
+  DEPRECATED
+}
+
+model InterfaceVersion {
+  id          String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workspaceId String                 @map("workspace_id") @db.Uuid
+  interfaceId String                 @map("interface_id") @db.Uuid
+  label       String
+  description String?
+  status      InterfaceVersionStatus @default(DRAFT)
+  createdAt   DateTime               @default(now()) @map("created_at")
+  createdBy   String?                @map("created_by")
+
+  workspace Workspace                    @relation(fields: [workspaceId], references: [id])
+  interface Interface                    @relation(fields: [interfaceId], references: [id], onDelete: Cascade)
+  snapshot  InterfaceVersionSnapshot?
+  diffs     InterfaceVersionDiff[]
+
+  @@unique([interfaceId, label])
+  @@map("interface_versions")
+}
+
+model InterfaceVersionSnapshot {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  versionId String   @unique @map("version_id") @db.Uuid
+  snapshot  Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  version InterfaceVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("interface_version_snapshots")
+}
+
+model InterfaceVersionDiff {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  versionId         String   @map("version_id") @db.Uuid
+  previousVersionId String?  @map("previous_version_id") @db.Uuid
+  diff              Json
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  version InterfaceVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@map("interface_version_diffs")
 }

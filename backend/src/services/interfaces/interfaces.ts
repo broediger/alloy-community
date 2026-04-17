@@ -1,5 +1,15 @@
+import { Prisma, InterfaceDirection } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError, ValidationError } from '../../errors/index.js'
+
+function parseInterfaceDirection(value: string): InterfaceDirection {
+  if (!(value in InterfaceDirection)) {
+    throw new ValidationError([
+      { field: 'direction', message: `Invalid direction '${value}'` },
+    ])
+  }
+  return value as InterfaceDirection
+}
 
 export interface CreateInterfaceBody {
   name: string
@@ -68,20 +78,127 @@ export async function getById(workspaceId: string, id: string) {
       fields: {
         include: {
           canonicalField: {
-            select: { id: true, name: true, displayName: true, dataType: true },
+            select: {
+              id: true, name: true, displayName: true, dataType: true,
+              referencedEntityId: true, cardinality: true, itemsDataType: true, isComposite: true,
+            },
           },
         },
       },
     },
   })
   if (!iface) throw new NotFoundError('Interface')
+  const ifaceId = iface.id
 
   const { sourceEntities, targetEntities } = groupBindings(iface.entityBindings)
   const sourceEntityIds = sourceEntities.map((e) => e.id)
   const targetEntityIds = targetEntities.map((e) => e.id)
 
+  const sourceMappingFilter = sourceEntityIds.length > 0
+    ? { entityId: { in: sourceEntityIds } }
+    : { entity: { systemId: iface.sourceSystemId } }
+  const targetMappingFilter = targetEntityIds.length > 0
+    ? { entityId: { in: targetEntityIds } }
+    : { entity: { systemId: iface.targetSystemId } }
+
+  function mapMapping(m: any) {
+    if (!m) return null
+    return {
+      id: m.id,
+      systemFieldId: m.systemField?.id ?? null,
+      systemFieldName: m.systemField?.name ?? null,
+      systemFieldPath: m.systemField?.path ?? null,
+      entityName: m.systemField?.entity?.name ?? null,
+      deprecated: m.deprecated,
+      transformationRule: m.transformationRule
+        ? {
+            type: m.transformationRule.type,
+            config: m.transformationRule.config,
+            valueMapEntries: m.transformationRule.valueMapEntries ?? [],
+            composeRuleFields: m.transformationRule.composeRuleFields ?? [],
+            decomposeRuleFields: m.transformationRule.decomposeRuleFields ?? [],
+          }
+        : null,
+    }
+  }
+
+  async function resolveMappingsForCanonicalField(canonicalFieldId: string) {
+    const include = {
+      systemField: {
+        select: {
+          id: true, name: true, path: true, entityId: true,
+          entity: { select: { id: true, name: true } },
+        },
+      },
+      transformationRule: {
+        include: {
+          valueMapEntries: { orderBy: { fromValue: 'asc' as const } },
+          composeRuleFields: { orderBy: { position: 'asc' as const } },
+          decomposeRuleFields: { orderBy: { position: 'asc' as const } },
+        },
+      },
+    }
+    const sourceMapping = await prisma.mapping.findFirst({
+      where: { canonicalFieldId, workspaceId, systemField: sourceMappingFilter },
+      include,
+    })
+    const targetMapping = await prisma.mapping.findFirst({
+      where: { canonicalFieldId, workspaceId, systemField: targetMappingFilter },
+      include,
+    })
+    return { sourceMapping: mapMapping(sourceMapping), targetMapping: mapMapping(targetMapping) }
+  }
+
+  // Recursively expand entity reference fields. Cycle guard via visited set; depth limit = 3.
+  async function expandReferencedFields(
+    referencedEntityId: string,
+    depth: number,
+    visited: Set<string>
+  ): Promise<any[]> {
+    if (depth >= 3 || visited.has(referencedEntityId)) return []
+    const newVisited = new Set(visited)
+    newVisited.add(referencedEntityId)
+
+    const childFields = await prisma.canonicalField.findMany({
+      where: { entityId: referencedEntityId, workspaceId },
+      orderBy: { name: 'asc' },
+    })
+
+    return Promise.all(
+      childFields.map(async (cf) => {
+        const { sourceMapping, targetMapping } = await resolveMappingsForCanonicalField(cf.id)
+        let children: any[] | undefined
+        if (cf.referencedEntityId) {
+          children = await expandReferencedFields(cf.referencedEntityId, depth + 1, newVisited)
+        }
+        return {
+          id: `virtual-${cf.id}`,
+          interfaceId: ifaceId,
+          canonicalFieldId: cf.id,
+          canonicalField: {
+            id: cf.id, name: cf.name, displayName: cf.displayName, dataType: cf.dataType,
+            referencedEntityId: cf.referencedEntityId, cardinality: cf.cardinality,
+            itemsDataType: cf.itemsDataType, isComposite: cf.isComposite,
+          },
+          name: null,
+          displayName: null,
+          dataType: null,
+          description: null,
+          nullable: cf.nullable,
+          maxLength: null,
+          status: 'OPTIONAL' as const,
+          createdAt: cf.createdAt,
+          updatedAt: cf.updatedAt,
+          sourceMapping,
+          targetMapping,
+          children,
+          virtual: true,
+        }
+      })
+    )
+  }
+
   // Resolve source and target mappings for each interface field
-  // If entity bindings exist, filter mappings to those specific entities
   const fieldsWithMappings = await Promise.all(
     iface.fields.map(async (f) => {
       // Unlinked fields have no canonical field — skip mapping resolution
@@ -105,79 +222,11 @@ export async function getById(workspaceId: string, id: string) {
         }
       }
 
-      const sourceMappingFilter = sourceEntityIds.length > 0
-        ? { entityId: { in: sourceEntityIds } }
-        : { entity: { systemId: iface.sourceSystemId } }
-
-      const sourceMapping = await prisma.mapping.findFirst({
-        where: {
-          canonicalFieldId: f.canonicalFieldId,
-          workspaceId,
-          systemField: sourceMappingFilter,
-        },
-        include: {
-          systemField: {
-            select: {
-              id: true, name: true, path: true, entityId: true,
-              entity: { select: { id: true, name: true } },
-            },
-          },
-          transformationRule: {
-            include: {
-              valueMapEntries: { orderBy: { fromValue: 'asc' as const } },
-              composeRuleFields: { orderBy: { position: 'asc' as const } },
-              decomposeRuleFields: { orderBy: { position: 'asc' as const } },
-            },
-          },
-        },
-      })
-
-      const targetMappingFilter = targetEntityIds.length > 0
-        ? { entityId: { in: targetEntityIds } }
-        : { entity: { systemId: iface.targetSystemId } }
-
-      const targetMapping = await prisma.mapping.findFirst({
-        where: {
-          canonicalFieldId: f.canonicalFieldId,
-          workspaceId,
-          systemField: targetMappingFilter,
-        },
-        include: {
-          systemField: {
-            select: {
-              id: true, name: true, path: true, entityId: true,
-              entity: { select: { id: true, name: true } },
-            },
-          },
-          transformationRule: {
-            include: {
-              valueMapEntries: { orderBy: { fromValue: 'asc' as const } },
-              composeRuleFields: { orderBy: { position: 'asc' as const } },
-              decomposeRuleFields: { orderBy: { position: 'asc' as const } },
-            },
-          },
-        },
-      })
-
-      function mapMapping(m: typeof sourceMapping) {
-        if (!m) return null
-        return {
-          id: m.id,
-          systemFieldId: m.systemField?.id ?? null,
-          systemFieldName: m.systemField?.name ?? null,
-          systemFieldPath: m.systemField?.path ?? null,
-          entityName: m.systemField?.entity?.name ?? null,
-          deprecated: m.deprecated,
-          transformationRule: m.transformationRule
-            ? {
-                type: m.transformationRule.type,
-                config: m.transformationRule.config,
-                valueMapEntries: (m.transformationRule as any).valueMapEntries ?? [],
-                composeRuleFields: (m.transformationRule as any).composeRuleFields ?? [],
-                decomposeRuleFields: (m.transformationRule as any).decomposeRuleFields ?? [],
-              }
-            : null,
-        }
+      const { sourceMapping, targetMapping } = await resolveMappingsForCanonicalField(f.canonicalFieldId!)
+      let children: any[] | undefined
+      const refEntityId = f.canonicalField?.referencedEntityId
+      if (refEntityId) {
+        children = await expandReferencedFields(refEntityId, 0, new Set())
       }
 
       return {
@@ -194,8 +243,9 @@ export async function getById(workspaceId: string, id: string) {
         status: f.status,
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
-        sourceMapping: mapMapping(sourceMapping),
-        targetMapping: mapMapping(targetMapping),
+        sourceMapping,
+        targetMapping,
+        children,
       }
     })
   )
@@ -271,7 +321,7 @@ export async function create(workspaceId: string, body: CreateInterfaceBody) {
       description: body.description ?? null,
       sourceSystemId: body.sourceSystemId,
       targetSystemId: body.targetSystemId,
-      direction: body.direction as any,
+      direction: parseInterfaceDirection(body.direction),
       entityBindings: bindingsData.length > 0
         ? { createMany: { data: bindingsData } }
         : undefined,
@@ -298,10 +348,10 @@ export async function update(workspaceId: string, id: string, body: UpdateInterf
   })
   if (!iface) throw new NotFoundError('Interface')
 
-  const data: any = {}
+  const data: Prisma.InterfaceUpdateInput = {}
   if (body.name !== undefined) data.name = body.name
   if (body.description !== undefined) data.description = body.description
-  if (body.direction !== undefined) data.direction = body.direction
+  if (body.direction !== undefined) data.direction = parseInterfaceDirection(body.direction)
 
   // Handle sourceEntityIds: validate belong to source system
   if (body.sourceEntityIds !== undefined) {

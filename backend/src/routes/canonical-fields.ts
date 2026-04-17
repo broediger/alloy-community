@@ -20,6 +20,9 @@ const createFieldSchema = {
     isComposite: { type: 'boolean' },
     compositionPattern: { type: 'string' },
     tags: { type: 'array', items: { type: 'string' } },
+    referencedEntityId: { type: 'string' },
+    cardinality: { type: 'string', enum: ['ONE', 'MANY'] },
+    itemsDataType: { type: 'string', enum: ['STRING', 'INTEGER', 'DECIMAL', 'BOOLEAN', 'DATE', 'DATETIME', 'ENUM', 'OBJECT', 'ARRAY'] },
   },
   additionalProperties: false,
 }
@@ -38,6 +41,9 @@ const updateFieldSchema = {
     isComposite: { type: 'boolean' },
     compositionPattern: { type: 'string' },
     tags: { type: 'array', items: { type: 'string' } },
+    referencedEntityId: { type: ['string', 'null'] },
+    cardinality: { type: ['string', 'null'], enum: ['ONE', 'MANY', null] },
+    itemsDataType: { type: ['string', 'null'], enum: ['STRING', 'INTEGER', 'DECIMAL', 'BOOLEAN', 'DATE', 'DATETIME', 'ENUM', 'OBJECT', 'ARRAY', null] },
   },
   additionalProperties: false,
 }

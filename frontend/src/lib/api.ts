@@ -52,6 +52,12 @@ import type {
   ExportOpenApiInput,
   ExportJsonSchemaInput,
   ApiErrorResponse,
+  InterfaceVersionListItem,
+  InterfaceVersionDetail,
+  InterfaceVersionDiff,
+  CutInterfaceVersionInput,
+  UpdateInterfaceVersionStatusInput,
+  ExcelImportResult,
 } from './types.js'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -60,7 +66,7 @@ export type { ApiErrorResponse as ApiError }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { ...options?.headers as Record<string, string> }
-  if (options?.body) {
+  if (options?.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json'
   }
   const response = await fetch(`${BASE_URL}${path}`, {
@@ -370,6 +376,23 @@ export const api = {
       }),
     deleteField: (wId: string, iId: string, ifId: string) =>
       request<void>(`${w(wId)}/interfaces/${iId}/fields/${ifId}`, { method: 'DELETE' }),
+    // Versions
+    listVersions: (wId: string, iId: string) =>
+      request<ListResponse<InterfaceVersionListItem>>(`${w(wId)}/interfaces/${iId}/versions`),
+    getVersion: (wId: string, iId: string, vId: string) =>
+      request<InterfaceVersionDetail>(`${w(wId)}/interfaces/${iId}/versions/${vId}`),
+    getVersionDiff: (wId: string, iId: string, vId: string) =>
+      request<InterfaceVersionDiff>(`${w(wId)}/interfaces/${iId}/versions/${vId}/diff`),
+    cutVersion: (wId: string, iId: string, data: CutInterfaceVersionInput) =>
+      request<InterfaceVersionListItem>(`${w(wId)}/interfaces/${iId}/versions`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    updateVersionStatus: (wId: string, iId: string, vId: string, data: UpdateInterfaceVersionStatusInput) =>
+      request<InterfaceVersionListItem>(`${w(wId)}/interfaces/${iId}/versions/${vId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      }),
   },
 
   // ── Trace ──
@@ -391,6 +414,20 @@ export const api = {
         body: JSON.stringify(data),
       }),
     workspace: (wId: string) => requestBlob(`${w(wId)}/export/workspace`),
+    interfaceExcel: (wId: string, iId: string) =>
+      requestBlob(`${w(wId)}/export/interface-excel/${iId}`),
+  },
+
+  // ── Import ──
+  import: {
+    interfaceExcel: (wId: string, iId: string, file: File) => {
+      const formData = new FormData()
+      formData.append('file', file)
+      return request<ExcelImportResult>(`${w(wId)}/import/interface-excel/${iId}`, {
+        method: 'POST',
+        body: formData,
+      })
+    },
   },
 }
 

@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError, DeleteConflictError, ConflictError } from '../../errors/index.js'
 
@@ -60,7 +61,7 @@ export async function create(body: CreateWorkspaceBody) {
     data: {
       name: body.name,
       slug: body.slug,
-      settings: (body.settings ?? undefined) as any,
+      settings: (body.settings ?? undefined) as Prisma.InputJsonValue | undefined,
     },
   })
 }
@@ -76,10 +77,10 @@ export async function update(id: string, body: UpdateWorkspaceBody) {
     if (existing) throw new ConflictError(`A workspace with slug '${body.slug}' already exists`)
   }
 
-  const data: any = {}
+  const data: Prisma.WorkspaceUpdateInput = {}
   if (body.name !== undefined) data.name = body.name
   if (body.slug !== undefined) data.slug = body.slug
-  if (body.settings !== undefined) data.settings = body.settings
+  if (body.settings !== undefined) data.settings = body.settings as Prisma.InputJsonValue
 
   return prisma.workspace.update({
     where: { id },

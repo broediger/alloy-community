@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import {
   useCanonicalEntity,
+  useCanonicalEntities,
   useCanonicalFields,
   useCreateCanonicalField,
   useDeleteCanonicalField,
@@ -17,7 +18,7 @@ import { Spinner } from '../../components/ui/Spinner.js'
 import { ConfirmDialog } from '../../components/ConfirmDialog.js'
 import { useToast } from '../../components/ui/Toast.js'
 import { getErrorMessage, isApiError } from '../../lib/api.js'
-import type { CanonicalFieldListItem, DataType } from '../../lib/types.js'
+import type { CanonicalFieldListItem, DataType, FieldCardinality } from '../../lib/types.js'
 
 const DATA_TYPES: Array<{ value: DataType; label: string }> = [
   { value: 'STRING', label: 'String' },
@@ -37,6 +38,7 @@ export function CanonicalEntityDetailPage() {
   const { toast } = useToast()
 
   const { data: entity, isLoading: entityLoading } = useCanonicalEntity(workspaceId, entityId)
+  const { data: allEntities } = useCanonicalEntities(workspaceId)
   const [searchTerm, setSearchTerm] = useState('')
   const [dataTypeFilter, setDataTypeFilter] = useState('')
   const [mappedFilter, setMappedFilter] = useState('')
@@ -61,6 +63,9 @@ export function CanonicalEntityDetailPage() {
   const [fieldNullable, setFieldNullable] = useState(true)
   const [fieldIsComposite, setFieldIsComposite] = useState(false)
   const [fieldTags, setFieldTags] = useState('')
+  const [fieldReferencedEntityId, setFieldReferencedEntityId] = useState('')
+  const [fieldCardinality, setFieldCardinality] = useState<FieldCardinality | ''>('')
+  const [fieldItemsDataType, setFieldItemsDataType] = useState<DataType | ''>('')
 
   // Edit entity dialog
   const [editOpen, setEditOpen] = useState(false)
@@ -81,6 +86,9 @@ export function CanonicalEntityDetailPage() {
     setFieldNullable(true)
     setFieldIsComposite(false)
     setFieldTags('')
+    setFieldReferencedEntityId('')
+    setFieldCardinality('')
+    setFieldItemsDataType('')
   }
 
   async function handleCreateField() {
@@ -98,6 +106,9 @@ export function CanonicalEntityDetailPage() {
           .split(',')
           .map((t) => t.trim())
           .filter(Boolean),
+        referencedEntityId: fieldReferencedEntityId || undefined,
+        cardinality: fieldReferencedEntityId ? (fieldCardinality || undefined) : undefined,
+        itemsDataType: fieldItemsDataType || undefined,
       })
       setCreateOpen(false)
       resetCreateForm()
@@ -361,6 +372,47 @@ export function CanonicalEntityDetailPage() {
             onChange={(e) => setFieldTags(e.target.value)}
             placeholder="contact, personal"
           />
+
+          {/* Relationship / collection */}
+          <div className="border-t border-gray-200 pt-4 mt-4">
+            <p className="text-sm font-medium text-gray-700 mb-2">Relationship / Collection</p>
+            <div className="space-y-3">
+              <Select
+                label="Referenced Entity (e.g. 'addresses[] \u2192 Address')"
+                options={[
+                  { value: '', label: 'None (scalar / inline composite)' },
+                  ...(allEntities?.items ?? [])
+                    .filter((e) => e.id !== entityId)
+                    .map((e) => ({ value: e.id, label: e.name })),
+                ]}
+                value={fieldReferencedEntityId}
+                onChange={(e) => setFieldReferencedEntityId(e.target.value)}
+              />
+              {fieldReferencedEntityId && (
+                <Select
+                  label="Cardinality"
+                  options={[
+                    { value: '', label: 'Select cardinality' },
+                    { value: 'ONE', label: '1:1 (single reference)' },
+                    { value: 'MANY', label: '1:n (collection)' },
+                  ]}
+                  value={fieldCardinality}
+                  onChange={(e) => setFieldCardinality(e.target.value as FieldCardinality | '')}
+                />
+              )}
+              {fieldDataType === 'ARRAY' && !fieldReferencedEntityId && (
+                <Select
+                  label="Array Items Data Type (for primitive arrays like string[])"
+                  options={[
+                    { value: '', label: 'Select item type' },
+                    ...DATA_TYPES.filter((d) => d.value !== 'ARRAY' && d.value !== 'OBJECT'),
+                  ]}
+                  value={fieldItemsDataType}
+                  onChange={(e) => setFieldItemsDataType(e.target.value as DataType | '')}
+                />
+              )}
+            </div>
+          </div>
         </div>
       </Dialog>
 

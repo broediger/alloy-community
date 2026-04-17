@@ -179,7 +179,9 @@ export function CanonicalEntityListPage() {
           <h1 className="text-2xl font-bold text-gray-900">Canonical Fields</h1>
           <p className="text-sm text-gray-500 mt-1">Manage canonical entities and their fields</p>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>Create Entity</Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setDialogOpen(true)}>Create Entity</Button>
+        </div>
       </div>
 
       <Input

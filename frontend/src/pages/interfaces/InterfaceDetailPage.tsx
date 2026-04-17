@@ -1,10 +1,13 @@
-import { useState, lazy, Suspense } from 'react'
+import { useState, lazy, Suspense, type ReactNode } from 'react'
 import { useParams, useNavigate } from 'react-router'
 import {
   useInterface,
   useCreateInterfaceField,
   useUpdateInterfaceField,
   useDeleteInterfaceField,
+  useInterfaceVersions,
+  useCutInterfaceVersion,
+  useUpdateInterfaceVersionStatus,
 } from '../../hooks/useInterfaces.js'
 import { useCanonicalFields, useCanonicalEntities } from '../../hooks/useCanonical.js'
 import { Button } from '../../components/ui/Button.js'
@@ -16,8 +19,9 @@ import { Spinner } from '../../components/ui/Spinner.js'
 import { useToast } from '../../components/ui/Toast.js'
 import { getErrorMessage } from '../../lib/api.js'
 import { api, triggerDownload } from '../../lib/api.js'
-import type { InterfaceFieldResolved, InterfaceFieldStatus, DataType } from '../../lib/types.js'
+import type { InterfaceFieldResolved, InterfaceFieldStatus, InterfaceVersionStatus, DataType } from '../../lib/types.js'
 import { SpecSheetDialog } from './SpecSheetDialog.js'
+import { ExcelImportDialog } from './ExcelImportDialog.js'
 
 const SwaggerUI = lazy(() => import('swagger-ui-react'))
 import 'swagger-ui-react/swagger-ui.css'
@@ -74,6 +78,19 @@ export function InterfaceDetailPage() {
   // Spec sheet
   const [specSheetOpen, setSpecSheetOpen] = useState(false)
 
+  // Field search
+  const [fieldSearch, setFieldSearch] = useState('')
+
+  // Excel import
+  const [importOpen, setImportOpen] = useState(false)
+
+  // Versioning
+  const { data: versionsData } = useInterfaceVersions(workspaceId, interfaceId)
+  const cutVersionMutation = useCutInterfaceVersion(workspaceId!, interfaceId!)
+  const updateVersionStatusMutation = useUpdateInterfaceVersionStatus(workspaceId!, interfaceId!)
+  const [cutVersionOpen, setCutVersionOpen] = useState(false)
+  const [versionLabel, setVersionLabel] = useState('')
+  const [versionDescription, setVersionDescription] = useState('')
 
   async function handleAddField() {
     if (!newCanonicalFieldId) return
@@ -134,6 +151,37 @@ export function InterfaceDetailPage() {
     }
   }
 
+  async function handleCutVersion() {
+    if (!versionLabel.trim()) return
+    try {
+      await cutVersionMutation.mutateAsync({
+        label: versionLabel.trim(),
+        description: versionDescription.trim() || undefined,
+      })
+      setCutVersionOpen(false)
+      setVersionLabel('')
+      setVersionDescription('')
+      toast('success', 'Version created')
+    } catch (err) {
+      toast('error', getErrorMessage(err))
+    }
+  }
+
+  async function handleVersionStatusChange(versionId: string, status: 'PUBLISHED' | 'DEPRECATED') {
+    try {
+      await updateVersionStatusMutation.mutateAsync({ versionId, data: { status } })
+      toast('success', status === 'PUBLISHED' ? 'Version published' : 'Version deprecated')
+    } catch (err) {
+      toast('error', getErrorMessage(err))
+    }
+  }
+
+  const STATUS_BADGE_VARIANT: Record<InterfaceVersionStatus, 'info' | 'success' | 'warning' | 'default'> = {
+    DRAFT: 'info',
+    PUBLISHED: 'success',
+    DEPRECATED: 'warning',
+  }
+
   async function handleExportOpenApi(format: 'yaml' | 'json') {
     if (!iface) return
     setExporting(true)
@@ -162,6 +210,20 @@ export function InterfaceDetailPage() {
       const text = await blob.text()
       setSwaggerSpec(JSON.parse(text))
       setSwaggerOpen(true)
+    } catch (err) {
+      toast('error', getErrorMessage(err))
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  async function handleExportExcel() {
+    if (!iface) return
+    setExporting(true)
+    try {
+      const blob = await api.export.interfaceExcel(workspaceId!, interfaceId!)
+      triggerDownload(blob, `interface-${iface.name}.xlsx`)
+      toast('success', 'Excel exported')
     } catch (err) {
       toast('error', getErrorMessage(err))
     } finally {
@@ -204,8 +266,87 @@ export function InterfaceDetailPage() {
   }
 
   // Split fields into linked (canonical) and unlinked (transport/meta)
-  const linkedFields = (iface?.fields ?? []).filter((f) => f.canonicalFieldId)
-  const unlinkedFields = (iface?.fields ?? []).filter((f) => !f.canonicalFieldId)
+  const allLinked = (iface?.fields ?? []).filter((f) => f.canonicalFieldId)
+  const allUnlinked = (iface?.fields ?? []).filter((f) => !f.canonicalFieldId)
+
+  function fieldMatchesSearch(f: InterfaceFieldResolved, q: string): boolean {
+    const haystack = [
+      f.canonicalField?.displayName,
+      f.canonicalField?.name,
+      f.name,
+      f.displayName,
+      f.sourceMapping?.systemFieldName,
+      f.sourceMapping?.entityName,
+      f.targetMapping?.systemFieldName,
+      f.targetMapping?.entityName,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+    if (haystack.includes(q)) return true
+    return (f.children ?? []).some((c) => fieldMatchesSearch(c, q))
+  }
+
+  const q = fieldSearch.trim().toLowerCase()
+  const linkedFields = q ? allLinked.filter((f) => fieldMatchesSearch(f, q)) : allLinked
+  const unlinkedFields = q ? allUnlinked.filter((f) => fieldMatchesSearch(f, q)) : allUnlinked
+
+  function renderFieldRow(f: InterfaceFieldResolved, depth: number): ReactNode[] {
+    const hasMissing = !f.sourceMapping || !f.targetMapping
+    const cf = f.canonicalField
+    const isRef = !!cf?.referencedEntityId
+    const cardSuffix = cf?.cardinality === 'MANY' ? '[]' : ''
+    const indent = depth > 0 ? { paddingLeft: `${1 + depth * 1.5}rem` } : undefined
+    const isVirtual = (f as any).virtual
+
+    const rows: ReactNode[] = [
+      <tr
+        key={f.id}
+        className={
+          hasMissing && !isRef
+            ? 'bg-yellow-50'
+            : depth > 0
+            ? 'bg-blue-50/30'
+            : ''
+        }
+      >
+        <td className="px-4 py-3 text-sm font-medium text-gray-900" style={indent}>
+          {cf ? `${cf.displayName}${cardSuffix} (${cf.name})` : f.canonicalFieldId}
+          {isRef && <span className="ml-2 text-xs text-blue-600">{cf?.cardinality === 'MANY' ? '1:n' : '1:1'} ref</span>}
+        </td>
+        <td className="px-4 py-3">{isRef ? <span className="text-gray-300">&mdash;</span> : mappingCell(f.sourceMapping)}</td>
+        <td className="px-4 py-3">{isRef ? <span className="text-gray-300">&mdash;</span> : mappingCell(f.targetMapping)}</td>
+        <td className="px-4 py-3">
+          {isVirtual ? (
+            <span className="text-xs text-gray-400">{f.status}</span>
+          ) : (
+            <Select
+              options={STATUS_OPTIONS}
+              value={f.status}
+              onChange={(e) =>
+                handleUpdateStatus(f, e.target.value as InterfaceFieldStatus)
+              }
+              className="w-32"
+            />
+          )}
+        </td>
+        <td className="px-4 py-3 text-right">
+          {!isVirtual && (
+            <Button variant="ghost" size="sm" onClick={() => handleRemoveField(f)}>
+              Remove
+            </Button>
+          )}
+        </td>
+      </tr>,
+    ]
+
+    if (f.children) {
+      for (const child of f.children) {
+        rows.push(...renderFieldRow(child, depth + 1))
+      }
+    }
+    return rows
+  }
 
   // Filter out already-added canonical fields, then filter by selected entity
   const existingFieldIds = new Set(linkedFields.map((f) => f.canonicalFieldId))
@@ -250,6 +391,14 @@ export function InterfaceDetailPage() {
             <Badge variant={iface.direction === 'EVENT' ? 'warning' : 'info'}>
               {iface.direction}
             </Badge>
+            {versionsData?.items?.[0] && (
+              <>
+                <span className="text-gray-300">|</span>
+                <Badge variant={STATUS_BADGE_VARIANT[versionsData.items[0].status]}>
+                  {versionsData.items[0].label}
+                </Badge>
+              </>
+            )}
           </div>
         </div>
         <div className="flex gap-2">
@@ -268,6 +417,12 @@ export function InterfaceDetailPage() {
           <Button variant="secondary" size="sm" onClick={handleExportJsonSchema} disabled={exporting}>
             JSON Schema
           </Button>
+          <Button variant="secondary" size="sm" onClick={handleExportExcel} disabled={exporting}>
+            Export Excel
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+            Import Excel
+          </Button>
           <Button onClick={() => setAddOpen(true)}>Add Field</Button>
         </div>
       </div>
@@ -277,6 +432,13 @@ export function InterfaceDetailPage() {
       )}
 
       {/* Canonical field contract table */}
+      <Input
+        placeholder="Search fields..."
+        value={fieldSearch}
+        onChange={(e) => setFieldSearch(e.target.value)}
+        className="mb-4"
+      />
+
       <h2 className="text-lg font-semibold text-gray-800 mb-3">Canonical Fields</h2>
       {linkedFields.length === 0 ? (
         <div className="text-center py-8 text-gray-500 text-sm border border-gray-200 rounded-lg mb-8">
@@ -305,38 +467,7 @@ export function InterfaceDetailPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {linkedFields.map((f) => {
-                const hasMissing = !f.sourceMapping || !f.targetMapping
-                return (
-                  <tr
-                    key={f.id}
-                    className={hasMissing ? 'bg-yellow-50' : ''}
-                  >
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
-                      {f.canonicalField
-                        ? `${f.canonicalField.displayName} (${f.canonicalField.name})`
-                        : f.canonicalFieldId}
-                    </td>
-                    <td className="px-4 py-3">{mappingCell(f.sourceMapping)}</td>
-                    <td className="px-4 py-3">{mappingCell(f.targetMapping)}</td>
-                    <td className="px-4 py-3">
-                      <Select
-                        options={STATUS_OPTIONS}
-                        value={f.status}
-                        onChange={(e) =>
-                          handleUpdateStatus(f, e.target.value as InterfaceFieldStatus)
-                        }
-                        className="w-32"
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Button variant="ghost" size="sm" onClick={() => handleRemoveField(f)}>
-                        Remove
-                      </Button>
-                    </td>
-                  </tr>
-                )
-              })}
+              {linkedFields.flatMap((f) => renderFieldRow(f, 0))}
             </tbody>
           </table>
         </div>
@@ -412,6 +543,66 @@ export function InterfaceDetailPage() {
         </div>
       )}
 
+      {/* Versions */}
+      <div className="flex items-center justify-between mb-3 mt-8">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800">Versions</h2>
+          <p className="text-xs text-gray-500">Snapshot history of this interface contract</p>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setCutVersionOpen(true)}
+        >
+          Cut Version
+        </Button>
+      </div>
+      {(versionsData?.items ?? []).length === 0 ? (
+        <div className="text-center py-8 text-gray-500 text-sm border border-gray-200 rounded-lg mb-8">
+          No versions yet. Cut a version to snapshot the current contract state.
+        </div>
+      ) : (
+        <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 mb-8">
+          {(versionsData?.items ?? []).map((v) => (
+            <div key={v.id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium text-gray-900">{v.label}</span>
+                <Badge variant={STATUS_BADGE_VARIANT[v.status]}>{v.status}</Badge>
+                <span className="text-xs text-gray-500">{v.fieldCount} fields</span>
+                {v.description && (
+                  <span className="text-xs text-gray-400">{v.description}</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">
+                  {new Date(v.createdAt).toLocaleDateString()}
+                </span>
+                {v.status === 'DRAFT' && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleVersionStatusChange(v.id, 'PUBLISHED')}
+                    disabled={updateVersionStatusMutation.isPending}
+                  >
+                    Publish
+                  </Button>
+                )}
+                {v.status === 'PUBLISHED' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleVersionStatusChange(v.id, 'DEPRECATED')}
+                    disabled={updateVersionStatusMutation.isPending}
+                  >
+                    Deprecate
+                  </Button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Swagger preview */}
       <Dialog
         open={swaggerOpen}
@@ -431,6 +622,14 @@ export function InterfaceDetailPage() {
         )}
       </Dialog>
 
+      {/* Excel import */}
+      <ExcelImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        workspaceId={workspaceId!}
+        interfaceId={interfaceId!}
+      />
+
       {/* Spec sheet */}
       {iface && (
         <SpecSheetDialog
@@ -441,6 +640,41 @@ export function InterfaceDetailPage() {
           canonicalEntities={canonicalEntities?.items ?? []}
         />
       )}
+
+      {/* Cut version dialog */}
+      <Dialog
+        open={cutVersionOpen}
+        onClose={() => setCutVersionOpen(false)}
+        title="Cut Version"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setCutVersionOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCutVersion}
+              disabled={!versionLabel.trim() || cutVersionMutation.isPending}
+            >
+              {cutVersionMutation.isPending ? 'Creating...' : 'Cut Version'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Input
+            label="Version Label"
+            value={versionLabel}
+            onChange={(e) => setVersionLabel(e.target.value)}
+            placeholder="e.g. v1.0, 2026-Q1, beta"
+          />
+          <Input
+            label="Description (optional)"
+            value={versionDescription}
+            onChange={(e) => setVersionDescription(e.target.value)}
+            placeholder="What changed in this version"
+          />
+        </div>
+      </Dialog>
 
       {/* Add canonical field dialog */}
       <Dialog

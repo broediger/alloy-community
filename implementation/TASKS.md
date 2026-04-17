@@ -484,3 +484,47 @@ Interface management and spec download.
 - [x] Add/remove canonical fields to interface — status selector per field (MANDATORY, OPTIONAL, EXCLUDED)
 - [x] Export buttons: OpenAPI (YAML/JSON), JSON Schema — triggers file download via `triggerDownload()` helper
 - [x] Workspace export button in settings — downloads full JSON dump in `WorkspaceSettingsPage.tsx`
+
+---
+
+## Phase 11 — AI Agents (Enterprise edition only)
+
+Two AI agents hosted on Azure AI Foundry: a docs chatbot ("Alloy Assistant") that answers questions and can file GitHub issues, and a workspace helper ("Mapping Assistant") that recommends entities, mappings, and transformation rules.
+
+### T-035 — Foundry SDK setup + agents-as-code ✅
+SDK plumbing, idempotent bootstrap, mock mode for offline development.
+
+**Acceptance criteria:**
+- [x] `@azure/ai-projects`, `@azure/ai-agents`, `@azure/identity`, `@octokit/rest` installed
+- [x] `backend/src/agents/client.ts` — Foundry client with `DefaultAzureCredential`
+- [x] `backend/src/agents/bootstrap.ts` — `agents:setup` script creates/updates both agents idempotently and uploads docs corpus to Foundry vector store
+- [x] `AGENTS_MODE=mock` returns deterministic canned responses; no network calls required
+- [x] All existing tests pass without Azure credentials
+
+### T-036 — Docs chatbot ("Alloy Assistant") ✅
+Conversational agent that explains Alloy and files bug/feature requests on GitHub.
+
+**Acceptance criteria:**
+- [x] Agent definition at `backend/src/agents/chatbot/definition.ts` — model, instructions, file_search + create_github_issue tools
+- [x] Vector store seeded with `README.md`, `decisions/*.md`, `implementation/TASKS.md`, `implementation/FAQ.md`
+- [x] `POST /api/v1/workspaces/:wId/agents/chat/message` — send a message, returns `{threadId, reply, pendingAction?}`
+- [x] `POST /api/v1/workspaces/:wId/agents/chat/confirm` — user confirms a pending GitHub issue, returns `{issue: {number, url}}`
+- [x] Issue creation: `bug` → label `bug`, `feature` → label `enhancement`. Both also labelled `submitted-by-agent`. Target repo configurable via `GITHUB_REPO`.
+- [x] Frontend `ChatSidebar` mounts in root layout when `VITE_AGENTS_ENABLED=true`
+- [x] Bug/feature drafts shown in chat for user confirmation before filing
+
+### T-037 — Workspace helper ("Mapping Assistant") ✅
+Helper agent that recommends canonical entities, mappings, and transformation rules.
+
+**Acceptance criteria:**
+- [x] Agent definition at `backend/src/agents/helper/definition.ts` — gpt-4o, function tools for workspace queries
+- [x] Function tools: `get_workspace_summary`, `list_unmapped_system_fields`, `list_canonical_fields`
+- [x] `POST /api/v1/workspaces/:wId/agents/helper/run` — body `{scope, scopeId?}`, returns `{suggestions, rationale}`
+- [x] Suggestion shape: `{kind, rationale, confidence, data}` — kind ∈ entity / field / mapping / rule
+- [x] Frontend `HelperButton` component, mounted on Canonical entities list and Mappings list pages
+- [x] `SuggestionReview` (inline in HelperButton) displays each suggestion with confidence badge
+
+**Out of scope (deferred):**
+- [ ] `POST /agents/helper/apply` — user accepts suggestions and they're applied transactionally to the database
+- [ ] Per-row accept/reject UI with multi-select bulk apply
+- [ ] Agent on Mapping detail page suggesting transformation rules

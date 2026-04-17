@@ -114,6 +114,8 @@ export interface UpdateCanonicalEntityInput {
 // Canonical Field
 // ─────────────────────────────────────────────
 
+export type FieldCardinality = 'ONE' | 'MANY'
+
 export interface CanonicalField {
   id: string
   workspaceId: string
@@ -129,6 +131,9 @@ export interface CanonicalField {
   isComposite: boolean
   compositionPattern: string | null
   tags: string[]
+  referencedEntityId: string | null
+  cardinality: FieldCardinality | null
+  itemsDataType: DataType | null
   createdAt: string
   updatedAt: string
 }
@@ -157,6 +162,9 @@ export interface CreateCanonicalFieldInput {
   isComposite?: boolean
   compositionPattern?: string
   tags?: string[]
+  referencedEntityId?: string
+  cardinality?: FieldCardinality
+  itemsDataType?: DataType
 }
 
 export interface UpdateCanonicalFieldInput {
@@ -171,6 +179,9 @@ export interface UpdateCanonicalFieldInput {
   isComposite?: boolean
   compositionPattern?: string
   tags?: string[]
+  referencedEntityId?: string | null
+  cardinality?: FieldCardinality | null
+  itemsDataType?: DataType | null
 }
 
 export interface CanonicalFieldFilters {
@@ -410,6 +421,7 @@ export interface Mapping {
   deprecated: boolean
   createdAt: string
   updatedAt: string
+  systemEntityId: string | null
   systemField?: {
     id: string
     name: string
@@ -420,6 +432,12 @@ export interface Mapping {
       systemId: string
       system?: { id: string; name: string }
     }
+  } | null
+  systemEntity?: {
+    id: string
+    name: string
+    systemId: string
+    system?: { id: string; name: string }
   } | null
   transformationRule?: TransformationRule | null
 }
@@ -432,6 +450,7 @@ export interface CreateMappingInput {
   canonicalFieldId?: string
   canonicalSubfieldId?: string
   systemFieldId?: string
+  systemEntityId?: string
   ruleType?: TransformationRuleType
   notes?: string
 }
@@ -579,7 +598,16 @@ export interface InterfaceFieldResolved {
   id: string
   interfaceId: string
   canonicalFieldId: string | null
-  canonicalField?: { id: string; name: string; displayName: string; dataType: string } | null
+  canonicalField?: {
+    id: string
+    name: string
+    displayName: string
+    dataType: string
+    referencedEntityId?: string | null
+    cardinality?: FieldCardinality | null
+    itemsDataType?: DataType | null
+    isComposite?: boolean
+  } | null
   // Inline metadata for unlinked fields
   name: string | null
   displayName: string | null
@@ -618,6 +646,8 @@ export interface InterfaceFieldResolved {
   } | null
   createdAt: string
   updatedAt: string
+  children?: InterfaceFieldResolved[]
+  virtual?: boolean
 }
 
 export interface CreateInterfaceInput {
@@ -656,6 +686,98 @@ export interface UpdateInterfaceFieldInput {
   description?: string
   nullable?: boolean
   maxLength?: number | null
+}
+
+// ─────────────────────────────────────────────
+// Interface Versioning
+// ─────────────────────────────────────────────
+
+export type InterfaceVersionStatus = 'DRAFT' | 'PUBLISHED' | 'DEPRECATED'
+
+export interface InterfaceVersionListItem {
+  id: string
+  workspaceId: string
+  interfaceId: string
+  label: string
+  description: string | null
+  status: InterfaceVersionStatus
+  createdAt: string
+  createdBy: string | null
+  fieldCount: number
+}
+
+export interface InterfaceVersionDetail {
+  id: string
+  workspaceId: string
+  interfaceId: string
+  label: string
+  description: string | null
+  status: InterfaceVersionStatus
+  createdAt: string
+  createdBy: string | null
+  snapshot: unknown
+}
+
+export interface InterfaceVersionDiff {
+  fields: {
+    added: Array<{ fieldId: string; name: string; status: string; canonicalFieldId: string | null }>
+    removed: Array<{ fieldId: string; name: string; status: string; canonicalFieldId: string | null }>
+    changed: Array<{ fieldId: string; name: string; changes: Record<string, { before: unknown; after: unknown }> }>
+  }
+  entityBindings: {
+    added: Array<{ entityId: string; entityName: string; side: string }>
+    removed: Array<{ entityId: string; entityName: string; side: string }>
+  }
+  metadata: Record<string, { before: unknown; after: unknown }>
+}
+
+export interface CutInterfaceVersionInput {
+  label: string
+  description?: string
+  createdBy?: string
+}
+
+export interface UpdateInterfaceVersionStatusInput {
+  status: 'PUBLISHED' | 'DEPRECATED'
+}
+
+// ─────────────────────────────────────────────
+// Agents
+// ─────────────────────────────────────────────
+
+export interface ChatPendingAction {
+  tool: 'create_github_issue'
+  args: { title: string; body: string; type: 'bug' | 'feature' }
+}
+
+export interface ChatMessageResult {
+  threadId: string
+  reply: string
+  pendingAction?: ChatPendingAction
+}
+
+export interface AgentSuggestion {
+  kind: 'entity' | 'field' | 'mapping' | 'rule'
+  rationale: string
+  confidence: number
+  data: Record<string, unknown>
+}
+
+export interface HelperRunResult {
+  suggestions: AgentSuggestion[]
+  rationale: string
+}
+
+// ─────────────────────────────────────────────
+// Excel Import
+// ─────────────────────────────────────────────
+
+export interface ExcelImportResult {
+  created: number
+  updated: number
+  unchanged: number
+  warnings: Array<{ row: number; field: string; message: string }>
+  errors: Array<{ row: number; field: string; message: string }>
 }
 
 // ─────────────────────────────────────────────

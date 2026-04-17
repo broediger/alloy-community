@@ -67,6 +67,7 @@ export function MappingListPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [newCanonicalFieldId, setNewCanonicalFieldId] = useState('')
   const [newSystemFieldId, setNewSystemFieldId] = useState('')
+  const [newSystemEntityId, setNewSystemEntityId] = useState('')
   const [newRuleType, setNewRuleType] = useState<TransformationRuleType | ''>('')
 
   // Rule editor
@@ -97,11 +98,13 @@ export function MappingListPage() {
       await createMutation.mutateAsync({
         canonicalFieldId: newCanonicalFieldId,
         systemFieldId: newSystemFieldId || undefined,
+        systemEntityId: newSystemEntityId || undefined,
         ruleType: (newRuleType as TransformationRuleType) || undefined,
       })
       setCreateOpen(false)
       setNewCanonicalFieldId('')
       setNewSystemFieldId('')
+      setNewSystemEntityId('')
       setNewRuleType('')
       toast('success', 'Mapping created')
     } catch (err) {
@@ -267,7 +270,9 @@ export function MappingListPage() {
           <h1 className="text-2xl font-bold text-gray-900">Mappings</h1>
           <p className="text-sm text-gray-500 mt-1">Field mappings between canonical and system fields</p>
         </div>
-        <Button onClick={() => setCreateOpen(true)}>Create Mapping</Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setCreateOpen(true)}>Create Mapping</Button>
+        </div>
       </div>
 
       <Input
@@ -340,6 +345,12 @@ export function MappingListPage() {
                         <span className="text-gray-500">{m.systemField.entity.system?.name} / {m.systemField.entity.name}.</span>
                         {m.systemField.name}
                       </>
+                    ) : m.systemEntity ? (
+                      <>
+                        <span className="text-gray-500">{m.systemEntity.system?.name} / </span>
+                        <span className="font-medium">{m.systemEntity.name}</span>
+                        <Badge variant="success" className="ml-2">entity</Badge>
+                      </>
                     ) : m.systemFieldId ? (
                       sfMap.get(m.systemFieldId) ?? m.systemFieldId
                     ) : 'Composite'}
@@ -401,24 +412,57 @@ export function MappingListPage() {
               { value: '', label: 'Select a canonical field' },
               ...(canonicalFields?.items ?? []).map((f) => ({
                 value: f.id,
-                label: `${f.displayName} (${f.name})`,
+                label: `${f.displayName} (${f.name})${f.referencedEntityId ? ' \u2192 ref' : ''}`,
               })),
             ]}
             value={newCanonicalFieldId}
-            onChange={(e) => setNewCanonicalFieldId(e.target.value)}
+            onChange={(e) => {
+              setNewCanonicalFieldId(e.target.value)
+              setNewSystemFieldId('')
+              setNewSystemEntityId('')
+            }}
           />
-          <Select
-            label="System Field (optional for compose/decompose)"
-            options={[
-              { value: '', label: 'Select a system field' },
-              ...(systemFields?.items ?? []).map((f) => ({
-                value: f.id,
-                label: f.name,
-              })),
-            ]}
-            value={newSystemFieldId}
-            onChange={(e) => setNewSystemFieldId(e.target.value)}
-          />
+          {(() => {
+            const selectedCf = (canonicalFields?.items ?? []).find((f) => f.id === newCanonicalFieldId)
+            const isRef = !!selectedCf?.referencedEntityId
+            if (isRef) {
+              // Entity-level mapping: pick a system entity (deduped from systemFields' entities)
+              const entitySet = new Map<string, { id: string; label: string }>()
+              for (const sf of systemFields?.items ?? []) {
+                const entity = (sf as any).entity
+                if (entity?.id && !entitySet.has(entity.id)) {
+                  const sysName = entity.system?.name ?? ''
+                  entitySet.set(entity.id, { id: entity.id, label: `${sysName ? sysName + ' / ' : ''}${entity.name}` })
+                }
+              }
+              const entityOptions = [...entitySet.values()]
+              return (
+                <Select
+                  label="System Entity (target table for this collection)"
+                  options={[
+                    { value: '', label: 'Select a system entity' },
+                    ...entityOptions.map((e) => ({ value: e.id, label: e.label })),
+                  ]}
+                  value={newSystemEntityId}
+                  onChange={(e) => setNewSystemEntityId(e.target.value)}
+                />
+              )
+            }
+            return (
+              <Select
+                label="System Field (optional for compose/decompose)"
+                options={[
+                  { value: '', label: 'Select a system field' },
+                  ...(systemFields?.items ?? []).map((f) => ({
+                    value: f.id,
+                    label: f.name,
+                  })),
+                ]}
+                value={newSystemFieldId}
+                onChange={(e) => setNewSystemFieldId(e.target.value)}
+              />
+            )
+          })()}
           <Select
             label="Rule Type Hint (optional)"
             options={[{ value: '', label: 'None' }, ...RULE_TYPES]}

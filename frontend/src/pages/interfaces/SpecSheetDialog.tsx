@@ -200,67 +200,88 @@ function EntityGroup({
         </td>
       </tr>
       {fields.map((f) => (
-        <LinkedRow key={f.id} field={f} description={descMap.get(f.canonicalFieldId!) ?? null} />
+        <LinkedRowTree key={f.id} field={f} depth={0} descMap={descMap} />
       ))}
     </>
   )
 }
 
-function LinkedRow({
+function LinkedRowTree({
   field: f,
-  description,
+  depth,
+  descMap,
 }: {
   field: InterfaceFieldResolved
-  description: string | null
+  depth: number
+  descMap: Map<string, string | null>
 }) {
+  const description = f.canonicalFieldId ? descMap.get(f.canonicalFieldId) ?? null : null
   const hasMissing = !f.sourceMapping || !f.targetMapping
   const srcRule = ruleDetail(f.sourceMapping)
   const tgtRule = ruleDetail(f.targetMapping)
   const ruleText = srcRule ?? tgtRule
+  const cf = f.canonicalField
+  const isRef = !!cf?.referencedEntityId
+  const cardinalitySuffix = cf?.cardinality === 'MANY' ? '[]' : ''
+  const indent = depth > 0 ? { paddingLeft: `${0.75 + depth * 1.5}rem` } : undefined
 
   return (
-    <tr className={`border-b border-gray-100 ${hasMissing ? 'bg-amber-50' : 'hover:bg-gray-50'}`}>
-      <td className="px-3 py-1.5 font-medium text-gray-900">
-        {f.canonicalField?.displayName ?? f.canonicalFieldId}
-      </td>
-      <td className="px-3 py-1.5 text-gray-500 font-mono text-xs">
-        {f.canonicalField?.name}
-      </td>
-      <td className="px-3 py-1.5">
-        {f.sourceMapping ? (
-          <span className="text-gray-700">{mappingLabel(f.sourceMapping)}</span>
-        ) : (
-          <Badge variant="warning">Missing</Badge>
-        )}
-      </td>
-      <td className="px-3 py-1.5">
-        {f.targetMapping ? (
-          <span className="text-gray-700">{mappingLabel(f.targetMapping)}</span>
-        ) : (
-          <Badge variant="warning">Missing</Badge>
-        )}
-      </td>
-      <td className="px-3 py-1.5">
-        <Badge variant="info">{f.canonicalField?.dataType}</Badge>
-      </td>
-      <td className="px-3 py-1.5 text-gray-500 text-xs">
-        {f.maxLength ?? '\u2014'}
-      </td>
-      <td className="px-3 py-1.5">
-        <Badge variant={STATUS_VARIANT[f.status]}>{f.status}</Badge>
-      </td>
-      <td className="px-3 py-1.5 text-gray-500">{f.nullable ? 'Yes' : 'No'}</td>
-      <td className="px-3 py-1.5 text-xs whitespace-pre-wrap max-w-[200px]">
-        {ruleText ? (
-          <span className="text-gray-700">{ruleText}</span>
-        ) : (
-          <span className="text-gray-300">&mdash;</span>
-        )}
-      </td>
-      <td className="px-3 py-1.5 text-gray-500 text-xs max-w-xs truncate" title={description ?? ''}>
-        {description ?? '\u2014'}
-      </td>
-    </tr>
+    <>
+      <tr className={`border-b border-gray-100 ${hasMissing ? 'bg-amber-50' : depth > 0 ? 'bg-blue-50/30' : 'hover:bg-gray-50'}`}>
+        <td className="px-3 py-1.5 font-medium text-gray-900" style={indent}>
+          {cf?.displayName ?? f.canonicalFieldId}
+          {isRef && <span className="text-gray-400 text-xs ml-1">{cardinalitySuffix}</span>}
+        </td>
+        <td className="px-3 py-1.5 text-gray-500 font-mono text-xs">
+          {cf?.name}
+        </td>
+        <td className="px-3 py-1.5">
+          {f.sourceMapping ? (
+            <span className="text-gray-700">{mappingLabel(f.sourceMapping)}</span>
+          ) : isRef ? (
+            <span className="text-gray-300">&mdash;</span>
+          ) : (
+            <Badge variant="warning">Missing</Badge>
+          )}
+        </td>
+        <td className="px-3 py-1.5">
+          {f.targetMapping ? (
+            <span className="text-gray-700">{mappingLabel(f.targetMapping)}</span>
+          ) : isRef ? (
+            <span className="text-gray-300">&mdash;</span>
+          ) : (
+            <Badge variant="warning">Missing</Badge>
+          )}
+        </td>
+        <td className="px-3 py-1.5">
+          {isRef ? (
+            <Badge variant="success">{cf?.cardinality === 'MANY' ? '1:n' : '1:1'} ref</Badge>
+          ) : (
+            <Badge variant="info">{cf?.dataType}</Badge>
+          )}
+        </td>
+        <td className="px-3 py-1.5 text-gray-500 text-xs">
+          {f.maxLength ?? '\u2014'}
+        </td>
+        <td className="px-3 py-1.5">
+          <Badge variant={STATUS_VARIANT[f.status]}>{f.status}</Badge>
+        </td>
+        <td className="px-3 py-1.5 text-gray-500">{f.nullable ? 'Yes' : 'No'}</td>
+        <td className="px-3 py-1.5 text-xs whitespace-pre-wrap max-w-[200px]">
+          {ruleText ? (
+            <span className="text-gray-700">{ruleText}</span>
+          ) : (
+            <span className="text-gray-300">&mdash;</span>
+          )}
+        </td>
+        <td className="px-3 py-1.5 text-gray-500 text-xs max-w-xs truncate" title={description ?? ''}>
+          {description ?? '\u2014'}
+        </td>
+      </tr>
+      {f.children?.map((child) => (
+        <LinkedRowTree key={child.id} field={child} depth={depth + 1} descMap={descMap} />
+      ))}
+    </>
   )
 }
 

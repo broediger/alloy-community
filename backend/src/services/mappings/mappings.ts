@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError, DeleteConflictError, ValidationError } from '../../errors/index.js'
 
@@ -5,6 +6,7 @@ export interface CreateMappingBody {
   canonicalFieldId?: string
   canonicalSubfieldId?: string
   systemFieldId?: string
+  systemEntityId?: string
   ruleType?: string
   notes?: string
   deprecated?: boolean
@@ -23,14 +25,18 @@ export interface MappingFilters {
 }
 
 export async function list(workspaceId: string, filters: MappingFilters) {
-  const where: any = { workspaceId }
+  const where: Prisma.MappingWhereInput = { workspaceId }
+  const systemFieldFilter: Prisma.SystemFieldWhereInput = {}
 
   if (filters.canonicalFieldId) where.canonicalFieldId = filters.canonicalFieldId
   if (filters.systemId) {
-    where.systemField = { entity: { systemId: filters.systemId } }
+    systemFieldFilter.entity = { systemId: filters.systemId }
   }
   if (filters.entityId) {
-    where.systemField = { ...(where.systemField ?? {}), entityId: filters.entityId }
+    systemFieldFilter.entityId = filters.entityId
+  }
+  if (Object.keys(systemFieldFilter).length > 0) {
+    where.systemField = systemFieldFilter
   }
   if (filters.deprecated === 'true') where.deprecated = true
   else if (filters.deprecated === 'false') where.deprecated = false
@@ -44,6 +50,12 @@ export async function list(workspaceId: string, filters: MappingFilters) {
         select: {
           id: true, name: true, entityId: true,
           entity: { select: { id: true, name: true, systemId: true, system: { select: { id: true, name: true } } } },
+        },
+      },
+      systemEntity: {
+        select: {
+          id: true, name: true, systemId: true,
+          system: { select: { id: true, name: true } },
         },
       },
       transformationRule: {
@@ -67,6 +79,7 @@ export async function getById(workspaceId: string, id: string) {
       canonicalField: { select: { id: true, name: true } },
       canonicalSubfield: { select: { id: true, name: true } },
       systemField: { select: { id: true, name: true, entityId: true } },
+      systemEntity: { select: { id: true, name: true, systemId: true } },
       transformationRule: {
         include: {
           valueMapEntries: true,
@@ -90,11 +103,18 @@ export async function create(workspaceId: string, body: CreateMappingBody) {
     ])
   }
 
-  // systemFieldId required unless ruleType is COMPOSE or DECOMPOSE
+  // Exactly one of systemFieldId/systemEntityId must be set (unless COMPOSE/DECOMPOSE)
   const isComposeDecompose = body.ruleType === 'COMPOSE' || body.ruleType === 'DECOMPOSE'
-  if (!isComposeDecompose && !body.systemFieldId) {
+  const hasSystemField = !!body.systemFieldId
+  const hasSystemEntity = !!body.systemEntityId
+  if (hasSystemField && hasSystemEntity) {
     throw new ValidationError([
-      { field: 'systemFieldId', message: 'Required unless ruleType is COMPOSE or DECOMPOSE' },
+      { field: 'systemFieldId', message: 'Cannot set both systemFieldId and systemEntityId' },
+    ])
+  }
+  if (!isComposeDecompose && !hasSystemField && !hasSystemEntity) {
+    throw new ValidationError([
+      { field: 'systemFieldId', message: 'Either systemFieldId or systemEntityId required (unless COMPOSE/DECOMPOSE)' },
     ])
   }
 
@@ -120,12 +140,20 @@ export async function create(workspaceId: string, body: CreateMappingBody) {
     if (!systemField) throw new ValidationError([{ field: 'systemFieldId', message: 'System field not found in this workspace' }])
   }
 
+  if (body.systemEntityId) {
+    const systemEntity = await prisma.systemEntity.findFirst({
+      where: { id: body.systemEntityId, workspaceId },
+    })
+    if (!systemEntity) throw new ValidationError([{ field: 'systemEntityId', message: 'System entity not found in this workspace' }])
+  }
+
   return prisma.mapping.create({
     data: {
       workspaceId,
       canonicalFieldId: body.canonicalFieldId ?? null,
       canonicalSubfieldId: body.canonicalSubfieldId ?? null,
       systemFieldId: body.systemFieldId ?? null,
+      systemEntityId: body.systemEntityId ?? null,
       notes: body.notes ?? null,
       deprecated: body.deprecated ?? false,
     },
@@ -133,6 +161,7 @@ export async function create(workspaceId: string, body: CreateMappingBody) {
       canonicalField: { select: { id: true, name: true } },
       canonicalSubfield: { select: { id: true, name: true } },
       systemField: { select: { id: true, name: true, entityId: true } },
+      systemEntity: { select: { id: true, name: true, systemId: true } },
     },
   })
 }
@@ -143,7 +172,7 @@ export async function update(workspaceId: string, id: string, body: UpdateMappin
   })
   if (!mapping) throw new NotFoundError('Mapping')
 
-  const data: any = {}
+  const data: Prisma.MappingUpdateInput = {}
   if (body.notes !== undefined) data.notes = body.notes
   if (body.deprecated !== undefined) data.deprecated = body.deprecated
 

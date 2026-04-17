@@ -1,5 +1,15 @@
+import { Prisma, InterfaceFieldStatus } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError, ConflictError, ValidationError } from '../../errors/index.js'
+
+function parseInterfaceFieldStatus(value: string): InterfaceFieldStatus {
+  if (!(value in InterfaceFieldStatus)) {
+    throw new ValidationError([
+      { field: 'status', message: `Invalid status '${value}'` },
+    ])
+  }
+  return value as InterfaceFieldStatus
+}
 
 export interface CreateInterfaceFieldBody {
   canonicalFieldId?: string
@@ -65,7 +75,7 @@ export async function create(workspaceId: string, interfaceId: string, body: Cre
         interfaceId,
         canonicalFieldId: body.canonicalFieldId,
         maxLength: body.maxLength ?? null,
-        status: body.status as any,
+        status: parseInterfaceFieldStatus(body.status),
       },
       include: {
         canonicalField: { select: { id: true, name: true, displayName: true, dataType: true } },
@@ -113,9 +123,9 @@ export async function update(workspaceId: string, interfaceId: string, id: strin
   })
   if (!field) throw new NotFoundError('Interface field')
 
-  const data: any = {}
+  const data: Prisma.InterfaceFieldUpdateInput = {}
 
-  if (body.status !== undefined) data.status = body.status
+  if (body.status !== undefined) data.status = parseInterfaceFieldStatus(body.status)
   if (body.maxLength !== undefined) data.maxLength = body.maxLength
 
   // Only allow metadata updates on unlinked fields

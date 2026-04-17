@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError, DeleteConflictError, ConflictError } from '../../errors/index.js'
 
@@ -28,7 +29,7 @@ export interface SystemFieldFilters {
 }
 
 export async function list(workspaceId: string, filters: SystemFieldFilters) {
-  const where: any = { workspaceId }
+  const where: Prisma.SystemFieldWhereInput = { workspaceId }
 
   if (filters.entityId) where.entityId = filters.entityId
   if (filters.systemId) {
@@ -153,7 +154,7 @@ export async function update(workspaceId: string, id: string, body: UpdateSystem
     if (existing) throw new ConflictError(`A system field with name '${body.name}' already exists in this entity`)
   }
 
-  const data: any = {}
+  const data: Prisma.SystemFieldUpdateInput = {}
   if (body.name !== undefined) data.name = body.name
   if (body.path !== undefined) data.path = body.path
   if (body.dataType !== undefined) data.dataType = body.dataType

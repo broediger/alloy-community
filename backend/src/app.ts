@@ -1,4 +1,5 @@
 import Fastify from 'fastify'
+import multipart from '@fastify/multipart'
 import { schemaErrorFormatter } from './plugins/schema-error-formatter.js'
 import { registerErrorHandler } from './plugins/error-handler.js'
 import { registerWorkspaceMiddleware } from './middleware/workspace.js'
@@ -13,6 +14,7 @@ import { propagationChainRoutes } from './routes/propagation-chains.js'
 import { interfaceRoutes } from './routes/interfaces.js'
 import { traceRoutes } from './routes/trace.js'
 import { exportRoutes } from './routes/export.js'
+import { importRoutes } from './routes/import.js'
 import { versionRoutes } from './routes/versions.js'
 
 export function buildApp() {
@@ -24,6 +26,7 @@ export function buildApp() {
   })
 
   registerErrorHandler(app)
+  app.register(multipart)
 
   // Health check — outside /api/v1/ prefix
   app.register(healthRoutes)
@@ -43,6 +46,7 @@ export function buildApp() {
       api.register(interfaceRoutes, { prefix: '/workspaces/:workspaceId/interfaces' })
       api.register(traceRoutes, { prefix: '/workspaces/:workspaceId/trace' })
       api.register(exportRoutes, { prefix: '/workspaces/:workspaceId/export' })
+      api.register(importRoutes, { prefix: '/workspaces/:workspaceId/import' })
       api.register(versionRoutes, { prefix: '/workspaces/:workspaceId/versions' })
     },
     { prefix: '/api/v1' }

@@ -1,5 +1,6 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
-import { NotFoundError, DeleteConflictError, ConflictError } from '../../errors/index.js'
+import { NotFoundError, DeleteConflictError, ConflictError, ValidationError } from '../../errors/index.js'
 
 export interface CreateCanonicalFieldBody {
   entityId: string
@@ -14,6 +15,9 @@ export interface CreateCanonicalFieldBody {
   isComposite?: boolean
   compositionPattern?: string
   tags?: string[]
+  referencedEntityId?: string
+  cardinality?: 'ONE' | 'MANY'
+  itemsDataType?: string
 }
 
 export interface UpdateCanonicalFieldBody {
@@ -28,6 +32,64 @@ export interface UpdateCanonicalFieldBody {
   isComposite?: boolean
   compositionPattern?: string
   tags?: string[]
+  referencedEntityId?: string | null
+  cardinality?: 'ONE' | 'MANY' | null
+  itemsDataType?: string | null
+}
+
+async function validateRelationshipFields(
+  workspaceId: string,
+  body: CreateCanonicalFieldBody | UpdateCanonicalFieldBody,
+  current?: { isComposite: boolean; dataType: string; entityId: string; id?: string }
+) {
+  // Resolve effective values (body overrides current)
+  const isComposite = body.isComposite ?? current?.isComposite ?? false
+  const dataType = (body as any).dataType ?? current?.dataType
+  const referencedEntityId = body.referencedEntityId
+  const cardinality = body.cardinality
+  const itemsDataType = body.itemsDataType
+
+  // referencedEntityId XOR isComposite (both inline composite and entity ref are mutually exclusive)
+  if (referencedEntityId && isComposite) {
+    throw new ValidationError([
+      { field: 'referencedEntityId', message: 'Entity reference and inline composite are mutually exclusive' },
+    ])
+  }
+
+  // If referencedEntityId set, cardinality required
+  if (referencedEntityId && !cardinality) {
+    throw new ValidationError([
+      { field: 'cardinality', message: 'Cardinality is required when referencing an entity' },
+    ])
+  }
+
+  // Validate referenced entity exists in same workspace; reject self-reference
+  if (referencedEntityId) {
+    const refEntity = await prisma.canonicalEntity.findFirst({
+      where: { id: referencedEntityId, workspaceId },
+    })
+    if (!refEntity) {
+      throw new ValidationError([
+        { field: 'referencedEntityId', message: 'Referenced entity not found in this workspace' },
+      ])
+    }
+    if (current?.entityId === referencedEntityId) {
+      throw new ValidationError([
+        { field: 'referencedEntityId', message: 'Field cannot reference its own parent entity' },
+      ])
+    }
+  }
+
+  // itemsDataType only valid when dataType=ARRAY OR (isComposite=true AND cardinality=MANY)
+  if (itemsDataType) {
+    const isArrayPrimitive = dataType === 'ARRAY'
+    const isCompositeArray = isComposite && cardinality === 'MANY'
+    if (!isArrayPrimitive && !isCompositeArray) {
+      throw new ValidationError([
+        { field: 'itemsDataType', message: 'itemsDataType only valid when dataType=ARRAY or composite array' },
+      ])
+    }
+  }
 }
 
 export interface CanonicalFieldFilters {
@@ -39,10 +101,10 @@ export interface CanonicalFieldFilters {
 }
 
 export async function list(workspaceId: string, filters: CanonicalFieldFilters) {
-  const where: any = { workspaceId }
+  const where: Prisma.CanonicalFieldWhereInput = { workspaceId }
 
   if (filters.entityId) where.entityId = filters.entityId
-  if (filters.dataType) where.dataType = filters.dataType
+  if (filters.dataType) where.dataType = filters.dataType as Prisma.CanonicalFieldWhereInput['dataType']
   if (filters.tags) {
     where.tags = { hasSome: filters.tags.split(',') }
   }
@@ -77,6 +139,9 @@ export async function list(workspaceId: string, filters: CanonicalFieldFilters) 
     isComposite: f.isComposite,
     compositionPattern: f.compositionPattern,
     tags: f.tags,
+    referencedEntityId: f.referencedEntityId,
+    cardinality: f.cardinality,
+    itemsDataType: f.itemsDataType,
     createdAt: f.createdAt,
     updatedAt: f.updatedAt,
     mappingCount: f._count.mappings,
@@ -118,6 +183,9 @@ export async function getById(workspaceId: string, id: string) {
     isComposite: field.isComposite,
     compositionPattern: field.compositionPattern,
     tags: field.tags,
+    referencedEntityId: field.referencedEntityId,
+    cardinality: field.cardinality,
+    itemsDataType: field.itemsDataType,
     createdAt: field.createdAt,
     updatedAt: field.updatedAt,
     subfields: field.subfields,
@@ -138,6 +206,12 @@ export async function create(workspaceId: string, body: CreateCanonicalFieldBody
   })
   if (existing) throw new ConflictError(`A canonical field with name '${body.name}' already exists in this entity`)
 
+  await validateRelationshipFields(workspaceId, body, {
+    isComposite: body.isComposite ?? false,
+    dataType: body.dataType,
+    entityId: body.entityId,
+  })
+
   return prisma.canonicalField.create({
     data: {
       workspaceId,
@@ -153,6 +227,9 @@ export async function create(workspaceId: string, body: CreateCanonicalFieldBody
       isComposite: body.isComposite ?? false,
       compositionPattern: body.compositionPattern ?? null,
       tags: body.tags ?? [],
+      referencedEntityId: body.referencedEntityId ?? null,
+      cardinality: (body.cardinality ?? null) as any,
+      itemsDataType: (body.itemsDataType ?? null) as any,
     },
   })
 }
@@ -170,11 +247,18 @@ export async function update(workspaceId: string, id: string, body: UpdateCanoni
     if (existing) throw new ConflictError(`A canonical field with name '${body.name}' already exists in this entity`)
   }
 
-  const data: any = {}
+  await validateRelationshipFields(workspaceId, body, {
+    isComposite: field.isComposite,
+    dataType: field.dataType,
+    entityId: field.entityId,
+    id: field.id,
+  })
+
+  const data: Prisma.CanonicalFieldUncheckedUpdateInput = {}
   if (body.name !== undefined) data.name = body.name
   if (body.displayName !== undefined) data.displayName = body.displayName
   if (body.description !== undefined) data.description = body.description
-  if (body.dataType !== undefined) data.dataType = body.dataType
+  if (body.dataType !== undefined) data.dataType = body.dataType as Prisma.CanonicalFieldUncheckedUpdateInput['dataType']
   if (body.format !== undefined) data.format = body.format
   if (body.nullable !== undefined) data.nullable = body.nullable
   if (body.minValue !== undefined) data.minValue = body.minValue
@@ -182,6 +266,9 @@ export async function update(workspaceId: string, id: string, body: UpdateCanoni
   if (body.isComposite !== undefined) data.isComposite = body.isComposite
   if (body.compositionPattern !== undefined) data.compositionPattern = body.compositionPattern
   if (body.tags !== undefined) data.tags = body.tags
+  if (body.referencedEntityId !== undefined) data.referencedEntityId = body.referencedEntityId
+  if (body.cardinality !== undefined) data.cardinality = body.cardinality
+  if (body.itemsDataType !== undefined) data.itemsDataType = body.itemsDataType as Prisma.CanonicalFieldUncheckedUpdateInput['itemsDataType']
 
   return prisma.canonicalField.update({
     where: { id },

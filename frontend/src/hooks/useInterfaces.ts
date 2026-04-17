@@ -5,6 +5,8 @@ import type {
   UpdateInterfaceInput,
   CreateInterfaceFieldInput,
   UpdateInterfaceFieldInput,
+  CutInterfaceVersionInput,
+  UpdateInterfaceVersionStatusInput,
 } from '../lib/types.js'
 
 export function useInterfaces(workspaceId: string | undefined) {
@@ -89,3 +91,46 @@ export function useDeleteInterfaceField(workspaceId: string, interfaceId: string
   })
 }
 
+// ── Interface Versions ──
+
+export function useInterfaceVersions(workspaceId: string | undefined, interfaceId: string | undefined) {
+  return useQuery({
+    queryKey: ['interface-versions', workspaceId, interfaceId],
+    queryFn: () => api.interfaces.listVersions(workspaceId!, interfaceId!),
+    enabled: !!workspaceId && !!interfaceId,
+  })
+}
+
+export function useInterfaceVersionDiff(
+  workspaceId: string | undefined,
+  interfaceId: string | undefined,
+  versionId: string | undefined
+) {
+  return useQuery({
+    queryKey: ['interface-version-diff', workspaceId, interfaceId, versionId],
+    queryFn: () => api.interfaces.getVersionDiff(workspaceId!, interfaceId!, versionId!),
+    enabled: !!workspaceId && !!interfaceId && !!versionId,
+  })
+}
+
+export function useCutInterfaceVersion(workspaceId: string, interfaceId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CutInterfaceVersionInput) =>
+      api.interfaces.cutVersion(workspaceId, interfaceId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['interface-versions', workspaceId, interfaceId] })
+    },
+  })
+}
+
+export function useUpdateInterfaceVersionStatus(workspaceId: string, interfaceId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ versionId, data }: { versionId: string; data: UpdateInterfaceVersionStatusInput }) =>
+      api.interfaces.updateVersionStatus(workspaceId, interfaceId, versionId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['interface-versions', workspaceId, interfaceId] })
+    },
+  })
+}

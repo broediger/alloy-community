@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError, DeleteConflictError, ConflictError } from '../../errors/index.js'
 
@@ -124,7 +125,7 @@ export async function update(workspaceId: string, systemId: string, id: string, 
     if (existing) throw new ConflictError(`A system entity with slug '${body.slug}' already exists in this system`)
   }
 
-  const data: any = {}
+  const data: Prisma.SystemEntityUpdateInput = {}
   if (body.name !== undefined) data.name = body.name
   if (body.slug !== undefined) data.slug = body.slug
   if (body.description !== undefined) data.description = body.description

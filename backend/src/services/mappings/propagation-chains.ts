@@ -1,3 +1,4 @@
+import { Prisma, PropagationStepType } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError, ValidationError } from '../../errors/index.js'
 
@@ -30,7 +31,7 @@ export interface UpdateStepBody {
 }
 
 export async function list(workspaceId: string, filters: ChainFilters) {
-  const where: any = { workspaceId }
+  const where: Prisma.PropagationChainWhereInput = { workspaceId }
   if (filters.canonicalFieldId) where.canonicalFieldId = filters.canonicalFieldId
   if (filters.systemId) where.systemId = filters.systemId
 
@@ -99,7 +100,7 @@ export async function update(workspaceId: string, id: string, body: UpdateChainB
   })
   if (!chain) throw new NotFoundError('Propagation chain')
 
-  const data: any = {}
+  const data: Prisma.PropagationChainUpdateInput = {}
   if (body.name !== undefined) data.name = body.name
   if (body.description !== undefined) data.description = body.description
 
@@ -142,12 +143,18 @@ export async function createStep(workspaceId: string, chainId: string, body: Cre
   })
   const nextPosition = (maxPosition._max.position ?? -1) + 1
 
+  if (!isPropagationStepType(body.stepType)) {
+    throw new ValidationError([
+      { field: 'stepType', message: `Invalid stepType '${body.stepType}'` },
+    ])
+  }
+
   return prisma.propagationChainStep.create({
     data: {
       chainId,
       systemFieldId: body.systemFieldId,
       position: nextPosition,
-      stepType: body.stepType as any,
+      stepType: body.stepType,
       notes: body.notes ?? null,
     },
     include: {
@@ -173,14 +180,25 @@ export async function updateStep(workspaceId: string, chainId: string, stepId: s
   })
   if (!step) throw new NotFoundError('Propagation chain step')
 
-  const data: any = {}
-  if (body.stepType !== undefined) data.stepType = body.stepType
+  const data: Prisma.PropagationChainStepUpdateInput = {}
+  if (body.stepType !== undefined) {
+    if (!isPropagationStepType(body.stepType)) {
+      throw new ValidationError([
+        { field: 'stepType', message: `Invalid stepType '${body.stepType}'` },
+      ])
+    }
+    data.stepType = body.stepType
+  }
   if (body.notes !== undefined) data.notes = body.notes
 
   return prisma.propagationChainStep.update({
     where: { id: stepId },
     data,
   })
+}
+
+function isPropagationStepType(value: string): value is PropagationStepType {
+  return value in PropagationStepType
 }
 
 export async function removeStep(workspaceId: string, chainId: string, stepId: string) {

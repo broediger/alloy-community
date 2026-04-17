@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify'
 import * as interfaceService from '../services/interfaces/interfaces.js'
 import * as fieldService from '../services/interfaces/interface-fields.js'
+import * as versionService from '../services/interfaces/interface-versions.js'
 
 const createInterfaceSchema = {
   type: 'object',
@@ -59,6 +60,26 @@ const updateFieldSchema = {
   additionalProperties: false,
 }
 
+const cutInterfaceVersionSchema = {
+  type: 'object',
+  required: ['label'],
+  properties: {
+    label: { type: 'string', minLength: 1 },
+    description: { type: 'string' },
+    createdBy: { type: 'string' },
+  },
+  additionalProperties: false,
+}
+
+const updateVersionStatusSchema = {
+  type: 'object',
+  required: ['status'],
+  properties: {
+    status: { type: 'string', enum: ['PUBLISHED', 'DEPRECATED'] },
+  },
+  additionalProperties: false,
+}
+
 export async function interfaceRoutes(app: FastifyInstance) {
   app.get('/', async (request) => {
     const { workspaceId } = request.params as { workspaceId: string }
@@ -108,5 +129,33 @@ export async function interfaceRoutes(app: FastifyInstance) {
   app.delete('/:iId/fields/:ifId', async (request) => {
     const { workspaceId, iId, ifId } = request.params as { workspaceId: string; iId: string; ifId: string }
     return fieldService.remove(workspaceId, iId, ifId)
+  })
+
+  // Interface Versions
+  app.get('/:iId/versions', async (request) => {
+    const { workspaceId, iId } = request.params as { workspaceId: string; iId: string }
+    return versionService.list(workspaceId, iId)
+  })
+
+  app.post('/:iId/versions', { schema: { body: cutInterfaceVersionSchema } }, async (request, reply) => {
+    const { workspaceId, iId } = request.params as { workspaceId: string; iId: string }
+    const result = await versionService.cutVersion(workspaceId, iId, request.body as versionService.CutInterfaceVersionBody)
+    reply.status(201)
+    return result
+  })
+
+  app.get('/:iId/versions/:vId', async (request) => {
+    const { workspaceId, iId, vId } = request.params as { workspaceId: string; iId: string; vId: string }
+    return versionService.getById(workspaceId, iId, vId)
+  })
+
+  app.get('/:iId/versions/:vId/diff', async (request) => {
+    const { workspaceId, iId, vId } = request.params as { workspaceId: string; iId: string; vId: string }
+    return versionService.getDiff(workspaceId, iId, vId)
+  })
+
+  app.patch('/:iId/versions/:vId/status', { schema: { body: updateVersionStatusSchema } }, async (request) => {
+    const { workspaceId, iId, vId } = request.params as { workspaceId: string; iId: string; vId: string }
+    return versionService.updateStatus(workspaceId, iId, vId, request.body as versionService.UpdateInterfaceVersionStatusBody)
   })
 }

@@ -8,6 +8,7 @@ const createMappingSchema = {
     canonicalFieldId: { type: 'string' },
     canonicalSubfieldId: { type: 'string' },
     systemFieldId: { type: 'string' },
+    systemEntityId: { type: 'string' },
     ruleType: { type: 'string', enum: ['RENAME', 'TYPE_CAST', 'VALUE_MAP', 'CONDITIONAL', 'FORMULA', 'COMPOSE', 'DECOMPOSE'] },
     notes: { type: 'string' },
     deprecated: { type: 'boolean' },
