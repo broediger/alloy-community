@@ -48,26 +48,44 @@ import type {
   UpdateInterfaceInput,
   CreateInterfaceFieldInput,
   UpdateInterfaceFieldInput,
-  TraceResponse,
-  ExportOpenApiInput,
-  ExportJsonSchemaInput,
-  ApiErrorResponse,
   InterfaceVersionListItem,
   InterfaceVersionDetail,
   InterfaceVersionDiff,
   CutInterfaceVersionInput,
   UpdateInterfaceVersionStatusInput,
   ExcelImportResult,
+  ChatMessageResult,
+  HelperRunResult,
+  TraceResponse,
+  ExportOpenApiInput,
+  ExportJsonSchemaInput,
+  ApiErrorResponse,
+  MeResponse,
+  MyWorkspaceItem,
+  MemberListItem,
+  MemberRole,
+  InvitationListItem,
 } from './types.js'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
 export type { ApiErrorResponse as ApiError }
 
+// Auth token getter — set by AuthProvider on mount.
+// Returns null in dev-bypass mode (backend's AUTH_DEV_USER_EMAIL handles identity).
+let authTokenGetter: (() => Promise<string | null>) | null = null
+export function setAuthTokenGetter(fn: () => Promise<string | null>) {
+  authTokenGetter = fn
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { ...options?.headers as Record<string, string> }
   if (options?.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json'
+  }
+  if (authTokenGetter) {
+    const token = await authTokenGetter()
+    if (token) headers['Authorization'] = `Bearer ${token}`
   }
   const response = await fetch(`${BASE_URL}${path}`, {
     ...options,
@@ -87,12 +105,17 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 async function requestBlob(path: string, options?: RequestInit): Promise<Blob> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string>),
+  }
+  if (authTokenGetter) {
+    const token = await authTokenGetter()
+    if (token) headers['Authorization'] = `Bearer ${token}`
+  }
   const response = await fetch(`${BASE_URL}${path}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
   })
 
   if (!response.ok) {
@@ -122,6 +145,44 @@ export const api = {
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+
+  // ── Current user ──
+  me: {
+    get: () => request<MeResponse>('/api/v1/me'),
+    workspaces: () =>
+      request<ListResponse<MyWorkspaceItem>>('/api/v1/me/workspaces'),
+  },
+
+  // ── Members ──
+  members: {
+    list: (wId: string) =>
+      request<ListResponse<MemberListItem>>(`${w(wId)}/members`),
+    updateRole: (wId: string, userId: string, role: MemberRole) =>
+      request<unknown>(`${w(wId)}/members/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      }),
+    remove: (wId: string, userId: string) =>
+      request<void>(`${w(wId)}/members/${userId}`, { method: 'DELETE' }),
+  },
+
+  // ── Invitations ──
+  invitations: {
+    list: (wId: string) =>
+      request<ListResponse<InvitationListItem>>(`${w(wId)}/invitations`),
+    create: (wId: string, data: { email: string; role: MemberRole }) =>
+      request<InvitationListItem>(`${w(wId)}/invitations`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    revoke: (wId: string, id: string) =>
+      request<void>(`${w(wId)}/invitations/${id}`, { method: 'DELETE' }),
+    accept: (token: string) =>
+      request<InvitationListItem>('/api/v1/invitations/accept', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      }),
+  },
 
   // ── Workspaces ──
   workspaces: {
@@ -315,6 +376,10 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(data),
       }),
+    seedFromEnum: (wId: string, mId: string) =>
+      request<unknown>(`${w(wId)}/mappings/${mId}/rule/seed-from-enum`, {
+        method: 'POST',
+      }),
     delete: (wId: string, mId: string) =>
       request<void>(`${w(wId)}/mappings/${mId}/rule`, { method: 'DELETE' }),
   },
@@ -416,6 +481,25 @@ export const api = {
     workspace: (wId: string) => requestBlob(`${w(wId)}/export/workspace`),
     interfaceExcel: (wId: string, iId: string) =>
       requestBlob(`${w(wId)}/export/interface-excel/${iId}`),
+  },
+
+  // ── Agents ──
+  agents: {
+    chat: (wId: string, data: { threadId?: string; message: string }) =>
+      request<ChatMessageResult>(`${w(wId)}/agents/chat/message`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    confirmAction: (wId: string, data: { threadId: string; tool: string; args: any }) =>
+      request<{ ok: true; result: { issue?: { number: number; url: string } } }>(
+        `${w(wId)}/agents/chat/confirm`,
+        { method: 'POST', body: JSON.stringify(data) }
+      ),
+    helperRun: (wId: string, data: { scope: 'workspace' | 'system' | 'entity'; scopeId?: string }) =>
+      request<HelperRunResult>(`${w(wId)}/agents/helper/run`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
   },
 
   // ── Import ──

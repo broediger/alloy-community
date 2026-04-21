@@ -8,6 +8,18 @@ export interface PutRuleBody {
   fields?: Array<{ systemFieldId: string; subfieldId: string; position: number }>
 }
 
+async function getMappingTargetDataType(workspaceId: string, mappingId: string): Promise<string | null> {
+  const mapping = await prisma.mapping.findFirst({
+    where: { id: mappingId, workspaceId },
+    include: {
+      canonicalField: { select: { dataType: true } },
+      canonicalSubfield: { select: { dataType: true } },
+    },
+  })
+  if (!mapping) return null
+  return mapping.canonicalField?.dataType ?? mapping.canonicalSubfield?.dataType ?? null
+}
+
 export async function putRule(workspaceId: string, mappingId: string, body: PutRuleBody) {
   const mapping = await prisma.mapping.findFirst({
     where: { id: mappingId, workspaceId },
@@ -28,7 +40,16 @@ export async function putRule(workspaceId: string, mappingId: string, body: PutR
       }
       break
 
-    case 'VALUE_MAP':
+    case 'VALUE_MAP': {
+      const targetDataType = await getMappingTargetDataType(workspaceId, mappingId)
+      if (targetDataType !== 'ENUM') {
+        throw new ValidationError([
+          {
+            field: 'type',
+            message: 'VALUE_MAP can only be applied to mappings whose canonical field (or subfield) has dataType ENUM',
+          },
+        ])
+      }
       if (!body.entries || body.entries.length === 0) {
         throw new ValidationError([
           { field: 'entries', message: 'VALUE_MAP requires at least one entry' },
@@ -52,6 +73,7 @@ export async function putRule(workspaceId: string, mappingId: string, body: PutR
         }
       }
       break
+    }
 
     case 'COMPOSE':
       if (!body.fields || body.fields.length === 0) {
@@ -198,6 +220,54 @@ export async function putRule(workspaceId: string, mappingId: string, body: PutR
   })
 
   return result
+}
+
+/**
+ * Seed (or replace) a VALUE_MAP transformation rule on a mapping using the
+ * canonical field's enum values. Each enum value becomes one entry with
+ * fromValue=label and toValue=code — the canonical code is what the target
+ * system receives, and the German/business label is what the source emits.
+ * Callers can PATCH individual entries later for deviations.
+ */
+export async function seedValueMapFromEnum(workspaceId: string, mappingId: string) {
+  const mapping = await prisma.mapping.findFirst({
+    where: { id: mappingId, workspaceId },
+    include: {
+      canonicalField: { include: { enumValues: { orderBy: { position: 'asc' } } } },
+      canonicalSubfield: true,
+    },
+  })
+  if (!mapping) throw new NotFoundError('Mapping')
+
+  // Subfield-backed mappings aren't supported for this helper — subfields don't
+  // currently carry their own enum values. Users must create entries manually.
+  if (!mapping.canonicalField) {
+    throw new ValidationError([
+      {
+        field: 'canonicalFieldId',
+        message: 'Seed-from-enum only supports mappings linked to a canonical field (not a subfield)',
+      },
+    ])
+  }
+  if (mapping.canonicalField.dataType !== 'ENUM') {
+    throw new ValidationError([
+      { field: 'canonicalFieldId', message: 'Canonical field must have dataType ENUM to seed value map' },
+    ])
+  }
+  const enumValues = mapping.canonicalField.enumValues
+  if (!enumValues || enumValues.length === 0) {
+    throw new ValidationError([
+      { field: 'enumValues', message: 'Canonical field has no enum values to seed from' },
+    ])
+  }
+
+  const entries = enumValues.map((ev) => ({
+    fromValue: ev.label,
+    toValue: ev.code,
+    bidirectional: false,
+  }))
+
+  return putRule(workspaceId, mappingId, { type: 'VALUE_MAP', entries })
 }
 
 export async function deleteRule(workspaceId: string, mappingId: string) {

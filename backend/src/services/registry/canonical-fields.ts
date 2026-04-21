@@ -63,7 +63,9 @@ async function validateRelationshipFields(
     ])
   }
 
-  // Validate referenced entity exists in same workspace; reject self-reference
+  // Validate referenced entity exists in same workspace.
+  // Self-reference is allowed — consumers (json-schema-generator, openapi-generator, trace-engine,
+  // interfaces.expandReferencedFields) all either emit $ref or guard depth/visited sets.
   if (referencedEntityId) {
     const refEntity = await prisma.canonicalEntity.findFirst({
       where: { id: referencedEntityId, workspaceId },
@@ -71,11 +73,6 @@ async function validateRelationshipFields(
     if (!refEntity) {
       throw new ValidationError([
         { field: 'referencedEntityId', message: 'Referenced entity not found in this workspace' },
-      ])
-    }
-    if (current?.entityId === referencedEntityId) {
-      throw new ValidationError([
-        { field: 'referencedEntityId', message: 'Field cannot reference its own parent entity' },
       ])
     }
   }
@@ -280,7 +277,14 @@ export async function remove(workspaceId: string, id: string) {
   const field = await prisma.canonicalField.findFirst({
     where: { id, workspaceId },
     include: {
-      _count: { select: { mappings: true, interfaceFields: true } },
+      _count: {
+        select: {
+          mappings: true,
+          interfaceFields: true,
+          subfields: true,
+          propagationChains: true,
+        },
+      },
     },
   })
   if (!field) throw new NotFoundError('Canonical field')
@@ -288,6 +292,8 @@ export async function remove(workspaceId: string, id: string) {
   const deps: { type: string; count: number }[] = []
   if (field._count.mappings > 0) deps.push({ type: 'mappings', count: field._count.mappings })
   if (field._count.interfaceFields > 0) deps.push({ type: 'interfaceFields', count: field._count.interfaceFields })
+  if (field._count.subfields > 0) deps.push({ type: 'subfields', count: field._count.subfields })
+  if (field._count.propagationChains > 0) deps.push({ type: 'propagationChains', count: field._count.propagationChains })
 
   if (deps.length > 0) {
     throw new DeleteConflictError('Cannot delete canonical field with active dependents', deps)

@@ -8,6 +8,8 @@ import {
   useDeleteCanonicalField,
   useUpdateCanonicalEntity,
 } from '../../hooks/useCanonical.js'
+import { api } from '../../lib/api.js'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '../../components/ui/Button.js'
 import { Input } from '../../components/ui/Input.js'
 import { Select } from '../../components/ui/Select.js'
@@ -53,6 +55,7 @@ export function CanonicalEntityDetailPage() {
   const createFieldMutation = useCreateCanonicalField(workspaceId!)
   const deleteFieldMutation = useDeleteCanonicalField(workspaceId!)
   const updateEntityMutation = useUpdateCanonicalEntity(workspaceId!)
+  const queryClient = useQueryClient()
 
   // Create field dialog
   const [createOpen, setCreateOpen] = useState(false)
@@ -66,6 +69,9 @@ export function CanonicalEntityDetailPage() {
   const [fieldReferencedEntityId, setFieldReferencedEntityId] = useState('')
   const [fieldCardinality, setFieldCardinality] = useState<FieldCardinality | ''>('')
   const [fieldItemsDataType, setFieldItemsDataType] = useState<DataType | ''>('')
+  const [enumValuesDraft, setEnumValuesDraft] = useState<Array<{ code: string; label: string }>>([])
+  const [enumDraftCode, setEnumDraftCode] = useState('')
+  const [enumDraftLabel, setEnumDraftLabel] = useState('')
 
   // Edit entity dialog
   const [editOpen, setEditOpen] = useState(false)
@@ -89,12 +95,32 @@ export function CanonicalEntityDetailPage() {
     setFieldReferencedEntityId('')
     setFieldCardinality('')
     setFieldItemsDataType('')
+    setEnumValuesDraft([])
+    setEnumDraftCode('')
+    setEnumDraftLabel('')
+  }
+
+  function addEnumDraftValue() {
+    const code = enumDraftCode.trim()
+    const label = enumDraftLabel.trim()
+    if (!code || !label) return
+    if (enumValuesDraft.some((v) => v.code === code)) {
+      toast('error', `Duplicate enum code: ${code}`)
+      return
+    }
+    setEnumValuesDraft((prev) => [...prev, { code, label }])
+    setEnumDraftCode('')
+    setEnumDraftLabel('')
+  }
+
+  function removeEnumDraftValue(code: string) {
+    setEnumValuesDraft((prev) => prev.filter((v) => v.code !== code))
   }
 
   async function handleCreateField() {
     if (!fieldName.trim() || !fieldDisplayName.trim()) return
     try {
-      await createFieldMutation.mutateAsync({
+      const created = await createFieldMutation.mutateAsync({
         entityId: entityId!,
         name: fieldName.trim(),
         displayName: fieldDisplayName.trim(),
@@ -110,9 +136,30 @@ export function CanonicalEntityDetailPage() {
         cardinality: fieldReferencedEntityId ? (fieldCardinality || undefined) : undefined,
         itemsDataType: fieldItemsDataType || undefined,
       })
+      // If ENUM with drafted values, create each enum value. Failures are toast-only
+      // — the field already exists and users can fix missing values on the detail page.
+      if (fieldDataType === 'ENUM' && enumValuesDraft.length > 0) {
+        const failed: string[] = []
+        for (const { code, label } of enumValuesDraft) {
+          try {
+            await api.canonicalEnumValues.create(workspaceId!, created.id, { code, label })
+          } catch {
+            failed.push(code)
+          }
+        }
+        // Invalidate so the field detail page shows the newly-created values
+        queryClient.invalidateQueries({ queryKey: ['canonical-enum-values', workspaceId, created.id] })
+        queryClient.invalidateQueries({ queryKey: ['canonical-fields', workspaceId, created.id] })
+        if (failed.length > 0) {
+          toast('error', `Field created but some enum values failed: ${failed.join(', ')}`)
+        } else {
+          toast('success', `Field created with ${enumValuesDraft.length} enum value${enumValuesDraft.length === 1 ? '' : 's'}`)
+        }
+      } else {
+        toast('success', 'Field created')
+      }
       setCreateOpen(false)
       resetCreateForm()
-      toast('success', 'Field created')
     } catch (err) {
       toast('error', getErrorMessage(err))
     }
@@ -261,27 +308,31 @@ export function CanonicalEntityDetailPage() {
 
       {/* Filters */}
       <div className="flex gap-3 mb-4">
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <Input
             placeholder="Search fields..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <Select
-          options={[{ value: '', label: 'All types' }, ...DATA_TYPES]}
-          value={dataTypeFilter}
-          onChange={(e) => setDataTypeFilter(e.target.value)}
-        />
-        <Select
-          options={[
-            { value: '', label: 'All' },
-            { value: 'true', label: 'Mapped' },
-            { value: 'false', label: 'Unmapped' },
-          ]}
-          value={mappedFilter}
-          onChange={(e) => setMappedFilter(e.target.value)}
-        />
+        <div className="w-48 shrink-0">
+          <Select
+            options={[{ value: '', label: 'All types' }, ...DATA_TYPES]}
+            value={dataTypeFilter}
+            onChange={(e) => setDataTypeFilter(e.target.value)}
+          />
+        </div>
+        <div className="w-40 shrink-0">
+          <Select
+            options={[
+              { value: '', label: 'All' },
+              { value: 'true', label: 'Mapped' },
+              { value: 'false', label: 'Unmapped' },
+            ]}
+            value={mappedFilter}
+            onChange={(e) => setMappedFilter(e.target.value)}
+          />
+        </div>
       </div>
 
       {fieldsLoading ? (
@@ -373,6 +424,58 @@ export function CanonicalEntityDetailPage() {
             placeholder="contact, personal"
           />
 
+          {/* Enum values — only for ENUM dataType. Values are buffered locally and
+              POSTed to /enum-values after the field is created. */}
+          {fieldDataType === 'ENUM' && (
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <p className="text-sm font-medium text-gray-700 mb-2">Enum Values</p>
+              {enumValuesDraft.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {enumValuesDraft.map((v) => (
+                    <div
+                      key={v.code}
+                      className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded px-3 py-2 text-sm"
+                    >
+                      <span className="font-mono text-gray-900">{v.code}</span>
+                      <span className="text-gray-400">—</span>
+                      <span className="text-gray-700 flex-1">{v.label}</span>
+                      <button
+                        type="button"
+                        className="text-gray-400 hover:text-red-500"
+                        onClick={() => removeEnumDraftValue(v.code)}
+                        aria-label={`Remove ${v.code}`}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2 items-end">
+                <Input
+                  label="Code"
+                  value={enumDraftCode}
+                  onChange={(e) => setEnumDraftCode(e.target.value)}
+                  placeholder="ACTIVE"
+                />
+                <Input
+                  label="Label"
+                  value={enumDraftLabel}
+                  onChange={(e) => setEnumDraftLabel(e.target.value)}
+                  placeholder="Active"
+                />
+                <Button
+                  size="sm"
+                  onClick={addEnumDraftValue}
+                  disabled={!enumDraftCode.trim() || !enumDraftLabel.trim()}
+                  className="shrink-0"
+                >
+                  Add
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Relationship / collection */}
           <div className="border-t border-gray-200 pt-4 mt-4">
             <p className="text-sm font-medium text-gray-700 mb-2">Relationship / Collection</p>
@@ -381,9 +484,10 @@ export function CanonicalEntityDetailPage() {
                 label="Referenced Entity (e.g. 'addresses[] \u2192 Address')"
                 options={[
                   { value: '', label: 'None (scalar / inline composite)' },
-                  ...(allEntities?.items ?? [])
-                    .filter((e) => e.id !== entityId)
-                    .map((e) => ({ value: e.id, label: e.name })),
+                  ...(allEntities?.items ?? []).map((e) => ({
+                    value: e.id,
+                    label: e.id === entityId ? `${e.name} (self)` : e.name,
+                  })),
                 ]}
                 value={fieldReferencedEntityId}
                 onChange={(e) => setFieldReferencedEntityId(e.target.value)}

@@ -138,6 +138,16 @@ describe('error-handler', () => {
     expect(res.json().error.message).toBe('An unexpected error occurred')
   })
 
+  it('should handle PrismaClientValidationError as 400', async () => {
+    const app = buildTestApp()
+    app.get('/test', async () => {
+      throw new Prisma.PrismaClientValidationError('Invalid argument', { clientVersion: '5.0.0' })
+    })
+    const res = await app.inject({ method: 'GET', url: '/test' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error.code).toBe('VALIDATION_ERROR')
+  })
+
   it('should handle Fastify validation errors', async () => {
     const app = buildTestApp()
     app.post('/test', {

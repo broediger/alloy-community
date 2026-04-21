@@ -78,6 +78,16 @@ export function usePutTransformationRule(workspaceId: string) {
   })
 }
 
+export function useSeedTransformationRuleFromEnum(workspaceId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (mappingId: string) => api.transformationRules.seedFromEnum(workspaceId, mappingId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['mappings'] })
+    },
+  })
+}
+
 export function useDeleteTransformationRule(workspaceId: string) {
   const qc = useQueryClient()
   return useMutation({

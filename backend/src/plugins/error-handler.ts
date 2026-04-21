@@ -57,12 +57,24 @@ export function registerErrorHandler(app: FastifyInstance) {
             },
           })
         default:
+          request.log.error(
+            { err: error, prismaCode: error.code, meta: error.meta },
+            'Unhandled Prisma known-request error',
+          )
           break
       }
     }
 
-    // Unhandled — log and return 500
-    request.log.error(error)
+    // Prisma validation errors — surface as 400 so the cause isn't masked
+    if (error instanceof Prisma.PrismaClientValidationError) {
+      request.log.warn({ err: error }, 'Prisma validation error')
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_ERROR', message: 'Request could not be processed by the database layer' },
+      })
+    }
+
+    // Unhandled — log the full stack and return 500
+    request.log.error({ err: error, stack: error.stack }, 'Unhandled error in request handler')
     return reply.status(500).send({
       error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
     })

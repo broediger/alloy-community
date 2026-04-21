@@ -6,6 +6,7 @@ import {
   useUpdateMapping,
   useDeleteMapping,
   usePutTransformationRule,
+  useSeedTransformationRuleFromEnum,
 } from '../../hooks/useMappings.js'
 import { useCanonicalFields, useCanonicalSubfields } from '../../hooks/useCanonical.js'
 import { useSystems, useSystemEntities, useSystemFields } from '../../hooks/useSystems.js'
@@ -62,6 +63,7 @@ export function MappingListPage() {
   const updateMutation = useUpdateMapping(workspaceId!)
   const deleteMutation = useDeleteMapping(workspaceId!)
   const putRuleMutation = usePutTransformationRule(workspaceId!)
+  const seedFromEnumMutation = useSeedTransformationRuleFromEnum(workspaceId!)
 
   // Create mapping flow
   const [createOpen, setCreateOpen] = useState(false)
@@ -183,6 +185,28 @@ export function MappingListPage() {
     setValueMapEntries(valueMapEntries.filter((_, i) => i !== idx))
   }
 
+  async function handleSeedFromEnum() {
+    if (!ruleMapping) return
+    try {
+      await seedFromEnumMutation.mutateAsync(ruleMapping.id)
+      // Close the editor — the rule is now persisted, so in-memory state is stale.
+      // Users can reopen to review/edit the seeded entries.
+      setRuleOpen(false)
+      setRuleMapping(null)
+      toast('success', 'Value map seeded from enum values')
+    } catch (err) {
+      toast('error', getErrorMessage(err))
+    }
+  }
+
+  // Canonical field lookup for enum-backed detection
+  const canonicalFieldById = new Map(
+    (canonicalFields?.items ?? []).map((f) => [f.id, f]),
+  )
+  const ruleMappingIsEnum =
+    !!ruleMapping?.canonicalFieldId &&
+    canonicalFieldById.get(ruleMapping.canonicalFieldId)?.dataType === 'ENUM'
+
   function addComposeField() {
     setComposeFields([...composeFields, { systemFieldId: '', subfieldId: '' }])
   }
@@ -270,9 +294,7 @@ export function MappingListPage() {
           <h1 className="text-2xl font-bold text-gray-900">Mappings</h1>
           <p className="text-sm text-gray-500 mt-1">Field mappings between canonical and system fields</p>
         </div>
-        <div className="flex gap-2">
-          <Button onClick={() => setCreateOpen(true)}>Create Mapping</Button>
-        </div>
+        <Button onClick={() => setCreateOpen(true)}>Create Mapping</Button>
       </div>
 
       <Input
@@ -284,43 +306,49 @@ export function MappingListPage() {
 
       {/* Filters */}
       <div className="flex gap-3 mb-4">
-        <Select
-          options={[
-            { value: '', label: 'All canonical fields' },
-            ...(canonicalFields?.items ?? []).map((f) => ({
-              value: f.id,
-              label: f.displayName,
-            })),
-          ]}
-          value={filterCanonicalFieldId}
-          onChange={(e) => setFilterCanonicalFieldId(e.target.value)}
-        />
-        <Select
-          options={[
-            { value: '', label: 'All systems' },
-            ...(systems?.items ?? []).map((s) => ({
-              value: s.id,
-              label: s.name,
-            })),
-          ]}
-          value={filterSystemId}
-          onChange={(e) => {
-            setFilterSystemId(e.target.value)
-            setFilterEntityId('')
-          }}
-        />
-        <Select
-          options={[
-            { value: '', label: 'All entities' },
-            ...(systemEntities?.items ?? []).map((e) => ({
-              value: e.id,
-              label: e.name,
-            })),
-          ]}
-          value={filterEntityId}
-          onChange={(e) => setFilterEntityId(e.target.value)}
-          disabled={!filterSystemId}
-        />
+        <div className="flex-1 min-w-0">
+          <Select
+            options={[
+              { value: '', label: 'All canonical fields' },
+              ...(canonicalFields?.items ?? []).map((f) => ({
+                value: f.id,
+                label: f.displayName,
+              })),
+            ]}
+            value={filterCanonicalFieldId}
+            onChange={(e) => setFilterCanonicalFieldId(e.target.value)}
+          />
+        </div>
+        <div className="w-56 shrink-0">
+          <Select
+            options={[
+              { value: '', label: 'All systems' },
+              ...(systems?.items ?? []).map((s) => ({
+                value: s.id,
+                label: s.name,
+              })),
+            ]}
+            value={filterSystemId}
+            onChange={(e) => {
+              setFilterSystemId(e.target.value)
+              setFilterEntityId('')
+            }}
+          />
+        </div>
+        <div className="w-56 shrink-0">
+          <Select
+            options={[
+              { value: '', label: 'All entities' },
+              ...(systemEntities?.items ?? []).map((e) => ({
+                value: e.id,
+                label: e.name,
+              })),
+            ]}
+            value={filterEntityId}
+            onChange={(e) => setFilterEntityId(e.target.value)}
+            disabled={!filterSystemId}
+          />
+        </div>
       </div>
 
       {/* Mapping list */}
@@ -525,9 +553,22 @@ export function MappingListPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-gray-700">Value Map Entries</p>
-                <Button size="sm" variant="secondary" onClick={addValueMapEntry}>
-                  Add Entry
-                </Button>
+                <div className="flex gap-2">
+                  {ruleMappingIsEnum && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleSeedFromEnum}
+                      disabled={seedFromEnumMutation.isPending}
+                      title="Create one entry per canonical enum value (fromValue=label, toValue=code). Replaces any existing rule."
+                    >
+                      {seedFromEnumMutation.isPending ? 'Seeding…' : 'Initialize from enum values'}
+                    </Button>
+                  )}
+                  <Button size="sm" variant="secondary" onClick={addValueMapEntry}>
+                    Add Entry
+                  </Button>
+                </div>
               </div>
               {valueMapEntries.map((entry, idx) => (
                 <div key={idx} className="flex items-center gap-2">

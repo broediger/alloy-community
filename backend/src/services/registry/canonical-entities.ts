@@ -101,10 +101,16 @@ export async function remove(workspaceId: string, id: string) {
   })
   if (!entity) throw new NotFoundError('Canonical entity')
 
-  if (entity._count.fields > 0) {
-    throw new DeleteConflictError('Cannot delete canonical entity with existing fields', [
-      { type: 'fields', count: entity._count.fields },
-    ])
+  const referencingFieldCount = await prisma.canonicalField.count({
+    where: { workspaceId, referencedEntityId: id },
+  })
+
+  const deps: { type: string; count: number }[] = []
+  if (entity._count.fields > 0) deps.push({ type: 'fields', count: entity._count.fields })
+  if (referencingFieldCount > 0) deps.push({ type: 'referencingFields', count: referencingFieldCount })
+
+  if (deps.length > 0) {
+    throw new DeleteConflictError('Cannot delete canonical entity with active dependents', deps)
   }
 
   await prisma.canonicalEntity.delete({ where: { id } })

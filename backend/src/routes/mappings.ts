@@ -99,6 +99,13 @@ export async function mappingRoutes(app: FastifyInstance) {
     return ruleService.putRule(workspaceId, mId, request.body as ruleService.PutRuleBody)
   })
 
+  app.post('/:mId/rule/seed-from-enum', async (request, reply) => {
+    const { workspaceId, mId } = request.params as { workspaceId: string; mId: string }
+    const result = await ruleService.seedValueMapFromEnum(workspaceId, mId)
+    reply.status(201)
+    return result
+  })
+
   app.delete('/:mId/rule', async (request) => {
     const { workspaceId, mId } = request.params as { workspaceId: string; mId: string }
     return ruleService.deleteRule(workspaceId, mId)

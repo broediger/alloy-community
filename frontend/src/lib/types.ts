@@ -28,6 +28,50 @@ export type TransformationRuleType =
 
 export type PropagationStepType = 'CONVERSION' | 'LOOKUP'
 
+export type MemberRole = 'OWNER' | 'EDITOR' | 'VIEWER'
+
+// ─────────────────────────────────────────────
+// Auth / users / sharing
+// ─────────────────────────────────────────────
+
+export interface MeResponse {
+  id: string
+  externalId: string
+  email: string
+  displayName: string | null
+}
+
+export interface MyWorkspaceItem {
+  id: string
+  name: string
+  slug: string
+  settings: unknown
+  role: MemberRole
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MemberListItem {
+  userId: string
+  email: string
+  displayName: string | null
+  role: MemberRole
+  joinedAt: string
+}
+
+export interface InvitationListItem {
+  id: string
+  workspaceId: string
+  email: string
+  role: MemberRole
+  token?: string
+  expiresAt: string
+  acceptedAt: string | null
+  revokedAt: string | null
+  createdAt: string
+  invitedBy?: { email: string; displayName: string | null }
+}
+
 export type InterfaceDirection = 'REQUEST_RESPONSE' | 'EVENT'
 
 export type InterfaceFieldStatus = 'MANDATORY' | 'OPTIONAL' | 'EXCLUDED'
@@ -663,6 +707,7 @@ export interface CreateInterfaceInput {
 export interface UpdateInterfaceInput {
   name?: string
   description?: string
+  direction?: InterfaceDirection
   sourceEntityIds?: string[]
   targetEntityIds?: string[]
 }

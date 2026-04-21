@@ -60,6 +60,18 @@ export function InterfaceListPage() {
   const [editTarget, setEditTarget] = useState<InterfaceListItem | null>(null)
   const [editName, setEditName] = useState('')
   const [editDescription, setEditDescription] = useState('')
+  const [editDirection, setEditDirection] = useState<InterfaceDirection>('REQUEST_RESPONSE')
+  const [editSourceEntityIds, setEditSourceEntityIds] = useState<string[]>([])
+  const [editTargetEntityIds, setEditTargetEntityIds] = useState<string[]>([])
+
+  const { data: editSourceEntities } = useSystemEntities(
+    workspaceId,
+    editTarget?.sourceSystemId,
+  )
+  const { data: editTargetEntities } = useSystemEntities(
+    workspaceId,
+    editTarget?.targetSystemId,
+  )
 
   const [deleteTarget, setDeleteTarget] = useState<InterfaceListItem | null>(null)
 
@@ -116,6 +128,9 @@ export function InterfaceListPage() {
     setEditTarget(i)
     setEditName(i.name)
     setEditDescription(i.description ?? '')
+    setEditDirection(i.direction)
+    setEditSourceEntityIds(i.sourceEntities.map((e) => e.id))
+    setEditTargetEntityIds(i.targetEntities.map((e) => e.id))
   }
 
   async function handleSaveEdit() {
@@ -126,6 +141,9 @@ export function InterfaceListPage() {
         data: {
           name: editName.trim(),
           description: editDescription.trim() || undefined,
+          direction: editDirection,
+          sourceEntityIds: editSourceEntityIds,
+          targetEntityIds: editTargetEntityIds,
         },
       })
       setEditTarget(null)
@@ -400,6 +418,69 @@ export function InterfaceListPage() {
             onChange={(e) => setEditDescription(e.target.value)}
             rows={3}
           />
+          <Select
+            label="Direction"
+            options={[
+              { value: 'REQUEST_RESPONSE', label: 'Request/Response' },
+              { value: 'EVENT', label: 'Event' },
+            ]}
+            value={editDirection}
+            onChange={(e) => setEditDirection(e.target.value as InterfaceDirection)}
+          />
+          {/* Source/target systems are fixed at creation — show as read-only.
+              Changing them would invalidate every mapping on the interface. */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Source System</label>
+            <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+              <span>{editTarget?.sourceSystem?.name ?? '—'}</span>
+              <span className="ml-auto text-xs text-gray-400">locked</span>
+            </div>
+          </div>
+          {editTarget && (editSourceEntities?.items ?? []).length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Source Entities</label>
+              <div className="space-y-1 max-h-40 overflow-y-auto border border-gray-200 rounded-md p-2">
+                {(editSourceEntities?.items ?? []).map((entity) => (
+                  <label key={entity.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editSourceEntityIds.includes(entity.id)}
+                      onChange={() => toggleEntityId(editSourceEntityIds, setEditSourceEntityIds, entity.id)}
+                      className="rounded border-gray-300"
+                    />
+                    {entity.name}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Leave all unchecked for system-wide scope</p>
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Target System</label>
+            <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+              <span>{editTarget?.targetSystem?.name ?? '—'}</span>
+              <span className="ml-auto text-xs text-gray-400">locked</span>
+            </div>
+          </div>
+          {editTarget && (editTargetEntities?.items ?? []).length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Target Entities</label>
+              <div className="space-y-1 max-h-40 overflow-y-auto border border-gray-200 rounded-md p-2">
+                {(editTargetEntities?.items ?? []).map((entity) => (
+                  <label key={entity.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editTargetEntityIds.includes(entity.id)}
+                      onChange={() => toggleEntityId(editTargetEntityIds, setEditTargetEntityIds, entity.id)}
+                      className="rounded border-gray-300"
+                    />
+                    {entity.name}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">Leave all unchecked for system-wide scope</p>
+            </div>
+          )}
         </div>
       </Dialog>
 
